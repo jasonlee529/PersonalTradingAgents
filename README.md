@@ -162,6 +162,12 @@ python main.py
 | `/sectors` | 板块发现 |
 | `/settings` | 系统设置 |
 
+## 知识库工作流
+
+生成知识库文件后，你可以直接用 [Obsidian](https://obsidian.md) 打开 `data/knowledge` 文件夹进行浏览和编辑。知识库采用 Markdown 文件组织，兼容 Obsidian 的链接、标签和图谱视图。
+
+此外，你也可以借助其他 AI Agent（如 Claude Code、Cursor 等）直接与本地 Wiki 进行交互，让 LLM 基于你的个人研究材料回答问题、补充分析或生成新的研究笔记。
+
 ## 本地数据与隐私
 
 本项目默认把个人运行数据保存在 `data/` 目录，并通过 `.gitignore` 排除。请不要提交以下内容：
@@ -187,6 +193,8 @@ web/knowledge/
 本项目首先向 [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) 致敬。
 
 TradingAgents 提出了用多智能体模拟投研机构协作的核心范式：分析师收集信息，研究员进行多空辩论，交易员形成计划，风控角色讨论风险，组合经理做最终决策。PersonalTradingAgents 的 Agent 思路深受 TradingAgents 启发，并在此基础上尝试面向 A 股个人投资者做本地化、持仓化和知识库化扩展。
+
+本项目的知识库设计也受到 Andrej Karpathy 分享的 [Obsidian Wiki 工作流](https://x.com/karpathy/status/2039805659525644595) 启发——通过简单约定的文本笔记结构、派生索引和持续沉淀，把散落的信息整理成可检索、可追溯的个人知识系统。
 
 如果这个项目对你有帮助，也请了解并支持 TradingAgents 原项目。
 
