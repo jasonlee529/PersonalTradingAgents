@@ -1,0 +1,15 @@
+PersonalTradingAgents
+Copyright 2026 PersonalTradingAgents contributors
+
+This project is a fork of TauricResearch/TradingAgents.
+
+TradingAgents is licensed under the Apache License, Version 2.0. This fork keeps
+the same license and preserves attribution to the original project. Significant
+changes in this repository focus on personal research workflows, localized market
+usage, portfolio-aware analysis, and knowledge-base oriented review.
+
+Original project:
+https://github.com/TauricResearch/TradingAgents
+
+License:
+Apache License, Version 2.0

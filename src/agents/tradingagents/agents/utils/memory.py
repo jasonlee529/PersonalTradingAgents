@@ -1,0 +1,527 @@
+"""Append-only markdown decision log for TradingAgents."""
+
+from dataclasses import dataclass, field
+from typing import List, Optional
+from pathlib import Path
+import re
+
+from tradingagents.agents.utils.rating import parse_rating
+
+
+@dataclass
+class DecisionRecord:
+    """Structured representation of a single trading decision."""
+
+    date: str
+    ticker: str
+    price_at_decision: Optional[float]
+    signal: str
+    reasoning_summary: str
+    confidence: Optional[float] = None
+    # --- delta fields (populated by caller) ---
+    price_delta_pct: Optional[float] = None
+    signal_changed: Optional[bool] = None
+
+
+class TradingMemoryLog:
+    """Append-only markdown log of trading decisions and reflections."""
+
+    # HTML comment: cannot appear in LLM prose output, safe as a hard delimiter
+    _SEPARATOR = "\n\n<!-- ENTRY_END -->\n\n"
+    # Precompiled patterns — avoids re-compilation on every load_entries() call
+    _DECISION_RE = re.compile(r"DECISION:\n(.*?)(?=\nREFLECTION:|\Z)", re.DOTALL)
+    _REFLECTION_RE = re.compile(r"REFLECTION:\n(.*?)$", re.DOTALL)
+
+    def __init__(self, config: dict = None):
+        cfg = config or {}
+        self._log_path = None
+        path = cfg.get("memory_log_path")
+        if path:
+            self._log_path = Path(path).expanduser()
+            self._log_path.parent.mkdir(parents=True, exist_ok=True)
+        # Optional cap on resolved entries. None disables rotation.
+        self._max_entries = cfg.get("memory_log_max_entries")
+
+    # --- Write path (Phase A) ---
+
+    def store_decision(
+        self,
+        ticker: str,
+        trade_date: str,
+        final_trade_decision: str,
+        price_at_decision: float = None,
+        confidence: float = None,
+    ) -> None:
+        """Append a decision entry with YAML front-matter."""
+        if not self._log_path:
+            return
+
+        # Idempotency guard: check for existing pending entry with same ticker+date
+        if self._log_path.exists():
+            raw = self._log_path.read_text(encoding="utf-8")
+            for entry_raw in raw.split(self._SEPARATOR):
+                entry_stripped = entry_raw.strip()
+                if not entry_stripped:
+                    continue
+                if self._has_front_matter(entry_stripped):
+                    fm = self._parse_front_matter(entry_stripped)
+                    if fm.get("ticker") == ticker and fm.get("date") == trade_date:
+                        if "## 反思" not in entry_stripped:
+                            return
+                else:
+                    for line in entry_stripped.splitlines():
+                        if line.startswith(f"[{trade_date} | {ticker} |") and line.endswith("| pending]"):
+                            return
+
+        rating = parse_rating(final_trade_decision)
+
+        # Build front-matter
+        fm_lines = ['---', f'ticker: "{ticker}"', f'date: "{trade_date}"']
+        if price_at_decision is not None:
+            fm_lines.append(f"price_at_decision: {price_at_decision}")
+        fm_lines.append(f'signal: "{rating}"')
+        if confidence is not None:
+            fm_lines.append(f"confidence: {confidence}")
+        fm_lines.append('---')
+
+        entry = (
+            "\n".join(fm_lines)
+            + f"\n\n## 决策\n\n{final_trade_decision}{self._SEPARATOR}"
+        )
+        with open(self._log_path, "a", encoding="utf-8") as f:
+            f.write(entry)
+
+    # --- Read path (Phase A) ---
+
+    def load_entries(self) -> List[dict]:
+        """Parse all entries from log. Returns list of dicts."""
+        if not self._log_path or not self._log_path.exists():
+            return []
+        text = self._log_path.read_text(encoding="utf-8")
+        raw_entries = [e.strip() for e in text.split(self._SEPARATOR) if e.strip()]
+        entries = []
+        for raw in raw_entries:
+            parsed = self._parse_entry(raw)
+            if parsed:
+                entries.append(parsed)
+        return entries
+
+    def get_pending_entries(self) -> List[dict]:
+        """Return entries with outcome:pending (for Phase B)."""
+        return [e for e in self.load_entries() if e.get("pending")]
+
+    def get_recent_decisions(
+        self, ticker: str, limit: int = 3
+    ) -> List[DecisionRecord]:
+        """Return the most recent N resolved decisions for a ticker.
+
+        Resolved = entries that have a reflection (not pending).
+        Results are sorted by date descending (most recent first).
+        The *limit* parameter is capped at 3 to prevent information overload.
+        """
+        # Hard ceiling — never return more than 3 records regardless of caller
+        limit = min(limit, 3)
+        entries = [
+            e for e in self.load_entries()
+            if e.get("ticker") == ticker and not e.get("pending")
+        ]
+        entries.sort(key=lambda e: e["date"], reverse=True)
+        records = []
+        for e in entries[:limit]:
+            records.append(
+                DecisionRecord(
+                    date=e["date"],
+                    ticker=e["ticker"],
+                    price_at_decision=e.get("price_at_decision"),
+                    signal=e.get("signal", "Hold"),
+                    reasoning_summary=(e.get("decision", "") or "")[:500],
+                    confidence=e.get("confidence"),
+                )
+            )
+        return records
+
+    def get_past_context(self, ticker: str, n_same: int = 5, n_cross: int = 3) -> str:
+        """Return formatted past context string for agent prompt injection."""
+        entries = [e for e in self.load_entries() if not e.get("pending")]
+        if not entries:
+            return ""
+
+        same, cross = [], []
+        for e in reversed(entries):
+            if len(same) >= n_same and len(cross) >= n_cross:
+                break
+            if e["ticker"] == ticker and len(same) < n_same:
+                same.append(e)
+            elif e["ticker"] != ticker and len(cross) < n_cross:
+                cross.append(e)
+
+        if not same and not cross:
+            return ""
+
+        parts = []
+        if same:
+            parts.append(f"Past analyses of {ticker} (most recent first):")
+            parts.extend(self._format_full(e) for e in same)
+        if cross:
+            parts.append("Recent cross-ticker lessons:")
+            parts.extend(self._format_reflection_only(e) for e in cross)
+        return "\n\n".join(parts)
+
+    # --- Update path (Phase B) ---
+
+    def update_with_outcome(
+        self,
+        ticker: str,
+        trade_date: str,
+        raw_return: float,
+        alpha_return: float,
+        holding_days: int,
+        reflection: str,
+    ) -> None:
+        """Replace pending tag and append REFLECTION section using atomic write.
+
+        Supports both front-matter and legacy tag-line formats.
+        Uses a temp-file + os.replace() so a crash mid-write never corrupts the log.
+        """
+        if not self._log_path or not self._log_path.exists():
+            return
+
+        text = self._log_path.read_text(encoding="utf-8")
+        blocks = text.split(self._SEPARATOR)
+
+        raw_pct = f"{raw_return:+.1%}"
+        alpha_pct = f"{alpha_return:+.1%}"
+
+        updated = False
+        new_blocks = []
+        for block in blocks:
+            stripped = block.strip()
+            if not stripped:
+                new_blocks.append(block)
+                continue
+
+            if updated:
+                new_blocks.append(block)
+                continue
+
+            # Check front-matter format
+            if self._has_front_matter(stripped):
+                fm = self._parse_front_matter(stripped)
+                if fm.get("ticker") == ticker and fm.get("date") == trade_date:
+                    if "## 反思" not in stripped:
+                        new_block = stripped.rstrip() + f"\n\n## 反思\n\n{reflection}"
+                    else:
+                        new_block = stripped
+                    new_blocks.append(new_block)
+                    updated = True
+                    continue
+            else:
+                # Legacy format
+                lines = stripped.splitlines()
+                tag_line = lines[0].strip()
+                pending_prefix = f"[{trade_date} | {ticker} |"
+                if tag_line.startswith(pending_prefix) and tag_line.endswith("| pending]"):
+                    fields = [f.strip() for f in tag_line[1:-1].split("|")]
+                    rating = fields[2]
+                    new_tag = (
+                        f"[{trade_date} | {ticker} | {rating}"
+                        f" | {raw_pct} | {alpha_pct} | {holding_days}d]"
+                    )
+                    rest = "\n".join(lines[1:])
+                    new_blocks.append(
+                        f"{new_tag}\n\n{rest.lstrip()}\n\nREFLECTION:\n{reflection}"
+                    )
+                    updated = True
+                    continue
+
+            new_blocks.append(block)
+
+        if not updated:
+            return
+
+        new_blocks = self._apply_rotation(new_blocks)
+        new_text = self._SEPARATOR.join(new_blocks)
+        tmp_path = self._log_path.with_suffix(".tmp")
+        tmp_path.write_text(new_text, encoding="utf-8")
+        tmp_path.replace(self._log_path)
+
+    def batch_update_with_outcomes(self, updates: List[dict]) -> None:
+        """Apply multiple outcome updates in a single read + atomic write.
+
+        Supports both front-matter and legacy tag-line formats.
+        Each element of updates must have keys: ticker, trade_date,
+        raw_return, alpha_return, holding_days, reflection.
+        """
+        if not self._log_path or not self._log_path.exists() or not updates:
+            return
+
+        text = self._log_path.read_text(encoding="utf-8")
+        blocks = text.split(self._SEPARATOR)
+        update_map = {(u["trade_date"], u["ticker"]): u for u in updates}
+
+        new_blocks = []
+        for block in blocks:
+            stripped = block.strip()
+            if not stripped:
+                new_blocks.append(block)
+                continue
+
+            matched = False
+
+            # Check front-matter format
+            if self._has_front_matter(stripped):
+                fm = self._parse_front_matter(stripped)
+                key = (fm.get("date"), fm.get("ticker"))
+                if key in update_map:
+                    upd = update_map.pop(key)
+                    reflection = upd["reflection"]
+                    if "## 反思" not in stripped:
+                        new_block = stripped.rstrip() + f"\n\n## 反思\n\n{reflection}"
+                    else:
+                        new_block = stripped
+                    new_blocks.append(new_block)
+                    matched = True
+                    continue
+            else:
+                # Legacy format
+                lines = stripped.splitlines()
+                tag_line = lines[0].strip()
+                for (trade_date, ticker), upd in list(update_map.items()):
+                    pending_prefix = f"[{trade_date} | {ticker} |"
+                    if tag_line.startswith(pending_prefix) and tag_line.endswith("| pending]"):
+                        fields = [f.strip() for f in tag_line[1:-1].split("|")]
+                        rating = fields[2]
+                        raw_pct = f"{upd['raw_return']:+.1%}"
+                        alpha_pct = f"{upd['alpha_return']:+.1%}"
+                        new_tag = (
+                            f"[{trade_date} | {ticker} | {rating}"
+                            f" | {raw_pct} | {alpha_pct} | {upd['holding_days']}d]"
+                        )
+                        rest = "\n".join(lines[1:])
+                        new_blocks.append(
+                            f"{new_tag}\n\n{rest.lstrip()}\n\nREFLECTION:\n{upd['reflection']}"
+                        )
+                        del update_map[(trade_date, ticker)]
+                        matched = True
+                        break
+
+            if not matched:
+                new_blocks.append(block)
+
+        new_blocks = self._apply_rotation(new_blocks)
+        new_text = self._SEPARATOR.join(new_blocks)
+        tmp_path = self._log_path.with_suffix(".tmp")
+        tmp_path.write_text(new_text, encoding="utf-8")
+        tmp_path.replace(self._log_path)
+
+    # --- Helpers ---
+
+    def _apply_rotation(self, blocks: List[str]) -> List[str]:
+        """Drop oldest resolved blocks when their count exceeds max_entries.
+
+        Pending blocks are always kept (they represent unprocessed work).
+        Returns ``blocks`` unchanged when rotation is disabled or under cap.
+        """
+        if not self._max_entries or self._max_entries <= 0:
+            return blocks
+
+        # Tag each block with (kept, is_resolved) by parsing tag-line markers.
+        decisions = []
+        for block in blocks:
+            stripped = block.strip()
+            if not stripped:
+                decisions.append((block, False))
+                continue
+            # Front-matter format: resolved if has ## 反思 section
+            if self._has_front_matter(stripped):
+                is_resolved = "## 反思" in stripped
+                decisions.append((block, is_resolved))
+                continue
+            # Legacy format: resolved if tag doesn't end with | pending]
+            tag_line = stripped.splitlines()[0].strip()
+            is_resolved = (
+                tag_line.startswith("[")
+                and tag_line.endswith("]")
+                and not tag_line.endswith("| pending]")
+            )
+            decisions.append((block, is_resolved))
+
+        resolved_count = sum(1 for _, r in decisions if r)
+        if resolved_count <= self._max_entries:
+            return blocks
+
+        to_drop = resolved_count - self._max_entries
+        kept: List[str] = []
+        for block, is_resolved in decisions:
+            if is_resolved and to_drop > 0:
+                to_drop -= 1
+                continue
+            kept.append(block)
+        return kept
+
+    @staticmethod
+    def _has_front_matter(text: str) -> bool:
+        """Check if text starts with YAML front-matter delimiters."""
+        return text.strip().startswith("---\n")
+
+    @staticmethod
+    def _parse_front_matter(text: str) -> dict:
+        """Parse YAML-like front-matter from markdown entry.
+
+        Expected format:
+        ---
+        key: value
+        key2: "quoted value"
+        ---
+
+        Returns dict of parsed fields. Values are strings; numeric conversion
+        is handled by callers who know which fields should be numeric.
+        """
+        result = {}
+        stripped = text.strip()
+        if not stripped.startswith("---\n"):
+            return result
+
+        # Find closing ---
+        end_idx = stripped.find("\n---", 4)
+        if end_idx == -1:
+            return result
+
+        fm_text = stripped[4:end_idx]  # skip opening ---\n
+        for line in fm_text.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if ":" not in line:
+                continue
+            key, _, value = line.partition(":")
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            result[key] = value
+        return result
+
+    def _parse_entry(self, raw: str) -> Optional[dict]:
+        text = raw.strip()
+        if not text:
+            return None
+
+        # Detect front-matter format
+        if self._has_front_matter(text):
+            return self._parse_entry_front_matter(text)
+
+        # Legacy format parsing
+        return self._parse_entry_legacy(text)
+
+    def _parse_entry_front_matter(self, text: str) -> Optional[dict]:
+        """Parse new front-matter format entry."""
+        fm = self._parse_front_matter(text)
+        if not fm:
+            return None
+
+        # Extract body after front-matter
+        end_fm = text.find("\n---", 4)
+        if end_fm == -1:
+            return None
+        body = text[end_fm + 4:].strip()
+
+        # Parse sections: ## 决策 and ## 反思
+        decision = ""
+        reflection = ""
+
+        dec_match = re.search(r"##\s*决策\s*\n+(.*?)(?=##\s*反思|\Z)", body, re.DOTALL)
+        if dec_match:
+            decision = dec_match.group(1).strip()
+        else:
+            heading_match = re.search(r"##\s+", body)
+            if heading_match:
+                decision = body[:heading_match.start()].strip()
+            else:
+                decision = body
+
+        refl_match = re.search(r"##\s*反思\s*\n+(.*?)$", body, re.DOTALL)
+        if refl_match:
+            reflection = refl_match.group(1).strip()
+
+        # Determine pending status: no reflection = pending
+        pending = not bool(reflection)
+
+        # Convert known numeric fields
+        price = fm.get("price_at_decision")
+        if price is not None:
+            try:
+                price = float(price)
+            except ValueError:
+                price = None
+
+        confidence = fm.get("confidence")
+        if confidence is not None:
+            try:
+                confidence = float(confidence)
+            except ValueError:
+                confidence = None
+
+        return {
+            "date": fm.get("date", ""),
+            "ticker": fm.get("ticker", ""),
+            "rating": fm.get("signal", "Hold"),
+            "signal": fm.get("signal", "Hold"),
+            "price_at_decision": price,
+            "confidence": confidence,
+            "pending": pending,
+            "decision": decision,
+            "reflection": reflection,
+            "raw": None,
+            "alpha": None,
+            "holding": None,
+        }
+
+    def _parse_entry_legacy(self, text: str) -> Optional[dict]:
+        """Parse legacy tag-line format entry."""
+        lines = text.strip().splitlines()
+        if not lines:
+            return None
+        tag_line = lines[0].strip()
+        if not (tag_line.startswith("[") and tag_line.endswith("]")):
+            return None
+        fields = [f.strip() for f in tag_line[1:-1].split("|")]
+        if len(fields) < 4:
+            return None
+        entry = {
+            "date": fields[0],
+            "ticker": fields[1],
+            "rating": fields[2],
+            "signal": fields[2],
+            "pending": fields[3] == "pending",
+            "raw": fields[3] if fields[3] != "pending" else None,
+            "alpha": fields[4] if len(fields) > 4 else None,
+            "holding": fields[5] if len(fields) > 5 else None,
+            "price_at_decision": None,
+            "confidence": None,
+        }
+        body = "\n".join(lines[1:]).strip()
+        decision_match = self._DECISION_RE.search(body)
+        reflection_match = self._REFLECTION_RE.search(body)
+        entry["decision"] = decision_match.group(1).strip() if decision_match else ""
+        entry["reflection"] = reflection_match.group(1).strip() if reflection_match else ""
+        return entry
+
+    def _format_full(self, e: dict) -> str:
+        raw = e["raw"] or "n/a"
+        alpha = e["alpha"] or "n/a"
+        holding = e["holding"] or "n/a"
+        if e.get("price_at_decision") is not None:
+            tag = f"[{e['date']} | {e['ticker']} | {e['rating']} | price={e['price_at_decision']} | {raw} | {alpha} | {holding}]"
+        else:
+            tag = f"[{e['date']} | {e['ticker']} | {e['rating']} | {raw} | {alpha} | {holding}]"
+        parts = [tag, f"DECISION:\n{e['decision']}"]
+        if e["reflection"]:
+            parts.append(f"REFLECTION:\n{e['reflection']}")
+        return "\n\n".join(parts)
+
+    def _format_reflection_only(self, e: dict) -> str:
+        tag = f"[{e['date']} | {e['ticker']} | {e['rating']} | {e['raw'] or 'n/a'}]"
+        if e["reflection"]:
+            return f"{tag}\n{e['reflection']}"
+        text = e["decision"][:300]
+        suffix = "..." if len(e["decision"]) > 300 else ""
+        return f"{tag}\n{text}{suffix}"

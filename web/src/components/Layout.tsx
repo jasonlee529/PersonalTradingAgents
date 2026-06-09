@@ -1,0 +1,197 @@
+import { useState } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { Layout as ArcoLayout } from '@arco-design/web-react'
+import {
+  IconDashboard,
+  IconHome,
+  IconArrowRise,
+  IconRobot,
+  IconCompass,
+  IconSettings,
+  IconMenuFold,
+  IconMenuUnfold,
+  IconBook,
+} from '@arco-design/web-react/icon'
+
+const { Sider, Header, Content } = ArcoLayout
+
+const menuItems = [
+  { key: '/', icon: IconHome, label: '首页' },
+  { key: '/portfolio', icon: IconDashboard, label: '我的持仓' },
+  { key: '/stock', icon: IconArrowRise, label: '股票详情' },
+  { key: '/sectors', icon: IconCompass, label: '今日方向' },
+  { key: '/analysis', icon: IconRobot, label: 'AI分析' },
+  { key: '/wiki', icon: IconBook, label: '知识库' },
+  { key: '/settings', icon: IconSettings, label: '设置' },
+]
+
+export default function Layout({ children }: { children: React.ReactNode }) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [collapsed, setCollapsed] = useState(false)
+  const isMenuActive = (key: string) => {
+    if (location.pathname === key) return true
+    if (key !== '/' && location.pathname.startsWith(`${key}/`)) return true
+    // 知识库子页面路由走 /knowledge/*，但菜单项是 /wiki
+    if (key === '/wiki' && location.pathname.startsWith('/knowledge/')) return true
+    return false
+  }
+  const activeItem = menuItems.find((item) => isMenuActive(item.key))
+
+  return (
+    <ArcoLayout style={{ minHeight: '100dvh', background: 'var(--bg-base)' }}>
+      <Sider
+        trigger={null}
+        collapsible
+        collapsed={collapsed}
+        onCollapse={setCollapsed}
+        width={244}
+        collapsedWidth={72}
+        style={{
+          background: 'var(--bg-sider)',
+          borderRight: '1px solid var(--border-subtle)',
+          boxShadow: 'none',
+        }}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '28px 16px 20px', overflow: 'hidden' }}>
+          {/* Brand */}
+          <div className="sider-brand" style={{ flexShrink: 0 }}>
+            <div className="sider-brand-mark">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" style={{ color: 'var(--text-primary)' }}>
+                <circle cx="12" cy="4.5" r="2.5" fill="currentColor" />
+                <circle cx="5" cy="11" r="2.5" fill="currentColor" />
+                <circle cx="19" cy="11" r="2.5" fill="currentColor" />
+                <circle cx="8.5" cy="18.5" r="2.5" fill="currentColor" />
+                <circle cx="15.5" cy="18.5" r="2.5" fill="currentColor" />
+                <path d="M12 7v3M5 13.5l3 2.5M19 13.5l-3 2.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+              </svg>
+            </div>
+            {!collapsed && (
+              <div className="sider-brand-text">
+                <div className="sider-brand-title">个人AI投研助手</div>
+                <div className="sider-brand-sub">PersonalTradingAgents</div>
+              </div>
+            )}
+          </div>
+
+          {/* Navigation */}
+          <nav className="nav-menu" style={{ flex: 1, overflowY: 'auto', minHeight: 0, marginTop: 8, marginBottom: 8 }}>
+            {menuItems.map((item) => {
+              const Icon = item.icon
+              const isActive = isMenuActive(item.key)
+              return (
+                <div
+                  key={item.key}
+                  className={`nav-item ${isActive ? 'nav-item-active' : ''} ${collapsed ? 'nav-item-collapsed' : ''}`}
+                  onClick={() => navigate(item.key)}
+                >
+                  <Icon />
+                  <span className="nav-label">{item.label}</span>
+                </div>
+              )
+            })}
+          </nav>
+
+          {/* Footer status */}
+          {!collapsed && (
+            <div className="sider-footer" style={{ flexShrink: 0 }}>
+              <div className="sider-footer-inner">
+                <div className="sider-footer-row">
+                  <div className="sider-footer-status" />
+                  <span className="sider-footer-label">系统运行中</span>
+                </div>
+                <div className="sider-footer-version">v0.1.0</div>
+              </div>
+            </div>
+          )}
+        </div>
+      </Sider>
+
+      <ArcoLayout style={{ background: 'var(--bg-base)' }}>
+        <Header
+          style={{
+            background: 'var(--bg-sider)',
+            padding: '0 32px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            borderBottom: '1px solid var(--border-subtle)',
+            boxShadow: 'none',
+            zIndex: 1,
+            height: 60,
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+            <button
+              onClick={() => setCollapsed(!collapsed)}
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--border-medium)',
+                borderRadius: 'var(--radius-md)',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                padding: '6px 8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-accent)'
+                e.currentTarget.style.color = 'var(--text-primary)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-medium)'
+                e.currentTarget.style.color = 'var(--text-secondary)'
+              }}
+            >
+              {collapsed ? <IconMenuUnfold style={{ fontSize: 16 }} /> : <IconMenuFold style={{ fontSize: 16 }} />}
+            </button>
+            <span
+              style={{
+                color: 'var(--text-primary)',
+                fontSize: 15,
+                fontWeight: 600,
+                letterSpacing: '-0.01em',
+              }}
+            >
+              {activeItem?.label || '投研助手'}
+            </span>
+          </div>
+
+          <span
+            style={{
+              fontSize: 12,
+              color: 'var(--text-dim)',
+              fontWeight: 500,
+              letterSpacing: '0.02em',
+              fontFamily: 'var(--font-mono)',
+            }}
+          >
+            {new Date().toLocaleDateString('zh-CN', {
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+            })}
+          </span>
+        </Header>
+
+        <Content
+          style={{
+            padding: '28px',
+            background: 'var(--bg-base)',
+          }}
+        >
+          <div
+            style={{
+              minHeight: 'calc(100dvh - 116px)',
+            }}
+            className="animate-fade-in"
+          >
+            {children}
+          </div>
+        </Content>
+      </ArcoLayout>
+    </ArcoLayout>
+  )
+}
