@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Button, Card, Form, Input, InputNumber, Message, Select, Switch } from '@arco-design/web-react'
 import { IconClockCircle, IconNotification, IconRobot } from '@arco-design/web-react/icon'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -21,6 +21,7 @@ const tabs = [
   { key: 'notification', title: '今日通知', icon: <IconNotification /> },
   { key: 'trading', title: '交易费率', icon: <IconRobot /> },
   { key: 'knowledge', title: '知识库', icon: <IconRobot /> },
+  { key: 'other', title: '其他设置', icon: <IconRobot /> },
 ]
 
 function parseChannels(value: unknown): string[] {
@@ -143,6 +144,9 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState('llm')
   const [expandedProviderId, setExpandedProviderId] = useState('')
   const [expandedNotificationChannel, setExpandedNotificationChannel] = useState('wechat')
+  const [expandedOtherSetting, setExpandedOtherSetting] = useState('xueqiu')
+  const changedProviderIdsRef = useRef<Set<string>>(new Set())
+  const changedProviderValuesRef = useRef<Record<string, unknown>>({})
   const queryClient = useQueryClient()
 
   const { data, isLoading } = useQuery({
@@ -182,6 +186,8 @@ export default function SettingsPage() {
       ...providerValues,
       notification_report_channels: parseChannels(data.notification_report_channels),
     })
+    changedProviderIdsRef.current.clear()
+    changedProviderValuesRef.current = {}
     setExpandedProviderId((current) => current || 'deepseek')
   }, [data, form, providers])
 
@@ -200,23 +206,62 @@ export default function SettingsPage() {
   const handleSubmit = (values: Record<string, unknown>) => {
     const providerConfigs: Record<string, { quick_model?: string; deep_model?: string; api_key?: string }> = {}
     const payload: Record<string, unknown> = { ...values }
+    delete payload.llm_provider_configs
     providers.forEach((provider) => {
       const quickField = providerField(provider.id, 'quick_model')
       const deepField = providerField(provider.id, 'deep_model')
       const keyField = providerField(provider.id, 'api_key')
-      providerConfigs[provider.id] = {
-        quick_model: String(values[quickField] || ''),
-        deep_model: String(values[deepField] || ''),
-        api_key: String(values[keyField] || ''),
-      }
       delete payload[quickField]
       delete payload[deepField]
       delete payload[keyField]
+      delete payload[provider.api_key_field]
+      if (!changedProviderIdsRef.current.has(provider.id)) {
+        return
+      }
+      const currentConfig = ((data?.llm_provider_configs || {}) as Record<
+        string,
+        { quick_model?: string; deep_model?: string; api_key?: string }
+      >)[provider.id] || {}
+      providerConfigs[provider.id] = {
+        quick_model: String(
+          values[quickField] ??
+            changedProviderValuesRef.current[quickField] ??
+            currentConfig.quick_model ??
+            provider.default_quick_model ??
+            '',
+        ),
+        deep_model: String(
+          values[deepField] ??
+            changedProviderValuesRef.current[deepField] ??
+            currentConfig.deep_model ??
+            provider.default_deep_model ??
+            '',
+        ),
+        api_key: String(values[keyField] ?? changedProviderValuesRef.current[keyField] ?? currentConfig.api_key ?? ''),
+      }
     })
-    updateMutation.mutate({
+    const updatePayload: Record<string, unknown> = {
       ...payload,
-      llm_provider_configs: providerConfigs,
       notification_report_channels: parseChannels(values.notification_report_channels).join(','),
+    }
+    if (Object.keys(providerConfigs).length > 0) {
+      updatePayload.llm_provider_configs = providerConfigs
+    }
+    updateMutation.mutate(updatePayload)
+  }
+
+  const handleValuesChange = (changedValues: Record<string, unknown>) => {
+    Object.keys(changedValues).forEach((fieldName) => {
+      providers.forEach((provider) => {
+        if (
+          fieldName === providerField(provider.id, 'quick_model') ||
+          fieldName === providerField(provider.id, 'deep_model') ||
+          fieldName === providerField(provider.id, 'api_key')
+        ) {
+          changedProviderIdsRef.current.add(provider.id)
+          changedProviderValuesRef.current[fieldName] = changedValues[fieldName]
+        }
+      })
     })
   }
 
@@ -226,7 +271,7 @@ export default function SettingsPage() {
         <h2 className="page-header-title">设置</h2>
       </div>
 
-      <Form form={form} layout="vertical" onSubmit={handleSubmit}>
+      <Form form={form} layout="vertical" onSubmit={handleSubmit} onValuesChange={handleValuesChange}>
         <div className="segmented-tabs">
           <div className="segmented-tabs-nav">
             {tabs.map((tab) => (
@@ -425,15 +470,26 @@ export default function SettingsPage() {
               <FormItem label="知识库 LLM 供应商" field="wiki_llm_provider">
                 <Select placeholder="默认使用 LLM 配置中的供应商" options={providerOptions} allowClear />
               </FormItem>
-              <FormItem label="雪球 cookie" field="xueqiu_cookie">
-                <Input.Password autoComplete="off" defaultVisibility={false} visibilityToggle />
-              </FormItem>
-              <FormItem label="自动刷新雪球 cookie" field="xueqiu_auto_cookie" triggerPropName="checked">
-                <Switch />
-              </FormItem>
-              <FormItem label="雪球超时时间" field="xueqiu_timeout">
-                <InputNumber className="settings-number-input" hideControl min={1} max={60} style={{ width: '100%' }} />
-              </FormItem>
+            </div>
+
+            <div style={{ display: activeTab === 'other' ? 'block' : 'none' }}>
+              <div style={{ display: 'grid', gap: 10 }}>
+                <SettingsFoldout
+                  title="雪球"
+                  expanded={expandedOtherSetting === 'xueqiu'}
+                  onToggle={() => setExpandedOtherSetting((current) => (current === 'xueqiu' ? '' : 'xueqiu'))}
+                >
+                  <FormItem label="雪球 cookie" field="xueqiu_cookie">
+                    <Input.Password autoComplete="off" defaultVisibility={false} visibilityToggle />
+                  </FormItem>
+                  <FormItem label="自动刷新雪球 cookie" field="xueqiu_auto_cookie" triggerPropName="checked">
+                    <Switch />
+                  </FormItem>
+                  <FormItem label="雪球超时时间" field="xueqiu_timeout">
+                    <InputNumber className="settings-number-input" hideControl min={1} max={60} style={{ width: '100%' }} />
+                  </FormItem>
+                </SettingsFoldout>
+              </div>
             </div>
 
             <div style={{ marginTop: 24, display: 'flex', justifyContent: 'flex-end' }}>

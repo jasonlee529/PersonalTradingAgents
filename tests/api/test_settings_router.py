@@ -109,6 +109,32 @@ def test_patch_settings_persists_model_fields_for_restart(client, test_settings)
     assert reloaded.kimi_deep_model == "custom-deep"
 
 
+def test_patch_settings_keeps_provider_api_keys_independent(client, test_settings):
+    test_settings.openai_api_key = "sk-openai"
+    test_settings.deepseek_api_key = "sk-deepseek"
+    test_settings.kimi_api_key = "sk-kimi"
+
+    resp = client.patch(
+        "/api/settings",
+        json={
+            "llm_provider_configs": {
+                "kimi": {
+                    "api_key": "sk-kimi-new",
+                }
+            },
+        },
+    )
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["llm_provider_configs"]["openai"]["api_key"] == "sk-openai"
+    assert data["llm_provider_configs"]["deepseek"]["api_key"] == "sk-deepseek"
+    assert data["llm_provider_configs"]["kimi"]["api_key"] == "sk-kimi-new"
+    assert test_settings.openai_api_key == "sk-openai"
+    assert test_settings.deepseek_api_key == "sk-deepseek"
+    assert test_settings.kimi_api_key == "sk-kimi-new"
+
+
 def test_list_scheduled_tasks(client):
     resp = client.get("/api/settings/tasks")
     assert resp.status_code == 200
