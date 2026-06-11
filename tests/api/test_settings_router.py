@@ -197,7 +197,7 @@ def test_get_llm_providers(client):
 
     # Spot-check Kimi official endpoint
     kimi = next(p for p in data["providers"] if p["id"] == "kimi")
-    assert kimi["default_base_url"] == "https://api.moonshot.ai/v1"
+    assert kimi["default_base_url"] == "https://api.moonshot.cn/v1"
     assert kimi["default_quick_model"] == "kimi-k2.6"
 
     # Ollama does not require key

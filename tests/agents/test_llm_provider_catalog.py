@@ -47,7 +47,7 @@ def test_llm_provider_catalog_coverage():
     assert get_default_base_url("google") == "https://generativelanguage.googleapis.com"
     assert get_default_base_url("openai") == "https://api.openai.com/v1"
     assert get_default_base_url("qwen-cn") == "https://dashscope.aliyuncs.com/compatible-mode/v1"
-    assert get_default_base_url("kimi") == "https://api.moonshot.ai/v1"
+    assert get_default_base_url("kimi") == "https://api.moonshot.cn/v1"
     assert get_api_key_field("kimi") == "kimi_api_key"
     assert PROVIDER_API_KEY_ENV["minimax-cn"] == "MINIMAX_CN_API_KEY"
     assert PROVIDER_API_KEY_ENV["ollama"] is None
