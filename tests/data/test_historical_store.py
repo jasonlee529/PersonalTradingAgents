@@ -66,3 +66,28 @@ async def test_get_date_range(store):
     min_date, max_date = await store.get_date_range("603738", "1d")
     assert min_date == "2025-01-02"
     assert max_date == "2025-01-03"
+
+
+@pytest.mark.asyncio
+async def test_lazy_init_without_explicit_init(temp_dir):
+    settings = Settings(
+        data_dir=temp_dir / "data",
+        knowledge_dir=temp_dir / "data" / "knowledge",
+        cache_db_path=temp_dir / "data" / "db" / "cache.db",
+        portfolio_db_path=temp_dir / "data" / "db" / "portfolio.db",
+        historical_db_path=temp_dir / "data" / "db" / "historical.db",
+        runtime_cache_dir=temp_dir / "data" / "cache",
+        analysis_artifacts_dir=temp_dir / "data" / "artifacts" / "analysis",
+        checkpoint_dir=temp_dir / "data" / "db" / "checkpoints",
+    )
+    store = HistoricalDataStore(settings)
+
+    records = [
+        {"date": "2025-01-02", "open": 10.0, "high": 11.0, "low": 9.5, "close": 10.5, "volume": 100000},
+    ]
+    await store.save_kline("603738", "1d", records)
+    loaded = await store.load_kline("603738", "1d")
+
+    assert loaded is not None
+    assert len(loaded) == 1
+    assert loaded[0]["date"] == "2025-01-02"

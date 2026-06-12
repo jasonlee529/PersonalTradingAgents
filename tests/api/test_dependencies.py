@@ -8,6 +8,9 @@ async def test_app_services_init(test_settings):
     await services.init()
     holdings = await services.portfolio.list_holdings()
     assert holdings == []
+    local = await services.collector._historical_store.load_kline("603738", "1d")
+    assert local is None
+    assert services.collector._historical_store is not None
 
 
 def test_appservices_has_orchestrator(test_settings):

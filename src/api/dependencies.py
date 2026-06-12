@@ -86,6 +86,8 @@ class AppServices:
         await self.portfolio.init_db()
         await self.raw_store.init_db()
         await self.wiki_store.init_db()
+        if getattr(self.collector, "_historical_store", None) is not None:
+            await self.collector._historical_store.ensure_db()
         await self.wiki_ingest_queue.recover_interrupted()
         await self.job_store.init_db()
         await self.scheduler.load_tasks()

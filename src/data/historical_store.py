@@ -1,5 +1,7 @@
+import asyncio
 import logging
 import os
+import sqlite3
 from pathlib import Path
 from typing import Optional
 
@@ -42,15 +44,27 @@ class HistoricalDataStore:
         self.db_path = getattr(settings, "historical_db_path", settings.data_dir / "historical.db")
         # Ensure parent directory exists so SQLite can create the file
         Path(self.db_path).parent.mkdir(parents=True, exist_ok=True)
+        self._init_lock = asyncio.Lock()
+        self._initialized = False
 
     async def init_db(self) -> None:
         async with aiosqlite.connect(self.db_path) as db:
             await db.executescript(SCHEMA)
             await db.commit()
+        self._initialized = True
+
+    async def ensure_db(self) -> None:
+        if self._initialized:
+            return
+        async with self._init_lock:
+            if self._initialized:
+                return
+            await self.init_db()
 
     async def save_kline(self, symbol: str, period: str, records: list[dict]) -> None:
         if not records:
             return
+        await self.ensure_db()
         rows = []
         for r in records:
             rows.append((
@@ -76,6 +90,7 @@ class HistoricalDataStore:
         self, symbol: str, period: str,
         start_date: str = "", end_date: str = "",
     ) -> Optional[list[dict]]:
+        await self.ensure_db()
         query = """SELECT date, open, high, low, close, volume,
                    turnover, amplitude, change_pct, change_amt, turnover_rate
                    FROM kline_history WHERE symbol = ? AND period = ?"""
@@ -88,19 +103,39 @@ class HistoricalDataStore:
             params.append(end_date)
         query += " ORDER BY date"
 
-        async with aiosqlite.connect(self.db_path) as db:
-            db.row_factory = aiosqlite.Row
-            async with db.execute(query, params) as cursor:
-                rows = await cursor.fetchall()
-                if not rows:
-                    return None
-                return [dict(r) for r in rows]
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(query, params) as cursor:
+                    rows = await cursor.fetchall()
+                    if not rows:
+                        return None
+                    return [dict(r) for r in rows]
+        except sqlite3.OperationalError as exc:
+            if "no such table: kline_history" not in str(exc).lower():
+                raise
+            await self.init_db()
+            async with aiosqlite.connect(self.db_path) as db:
+                db.row_factory = aiosqlite.Row
+                async with db.execute(query, params) as cursor:
+                    rows = await cursor.fetchall()
+                    if not rows:
+                        return None
+                    return [dict(r) for r in rows]
 
     async def get_date_range(self, symbol: str, period: str) -> tuple[Optional[str], Optional[str]]:
-        async with aiosqlite.connect(self.db_path) as db:
-            async with db.execute(
-                "SELECT MIN(date), MAX(date) FROM kline_history WHERE symbol = ? AND period = ?",
-                (symbol, period),
-            ) as cursor:
-                row = await cursor.fetchone()
-                return (row[0], row[1]) if row else (None, None)
+        await self.ensure_db()
+        query = "SELECT MIN(date), MAX(date) FROM kline_history WHERE symbol = ? AND period = ?"
+        try:
+            async with aiosqlite.connect(self.db_path) as db:
+                async with db.execute(query, (symbol, period)) as cursor:
+                    row = await cursor.fetchone()
+                    return (row[0], row[1]) if row else (None, None)
+        except sqlite3.OperationalError as exc:
+            if "no such table: kline_history" not in str(exc).lower():
+                raise
+            await self.init_db()
+            async with aiosqlite.connect(self.db_path) as db:
+                async with db.execute(query, (symbol, period)) as cursor:
+                    row = await cursor.fetchone()
+                    return (row[0], row[1]) if row else (None, None)
