@@ -50,13 +50,42 @@ stop_port() {
 
 wait_for_url() {
   local url="$1"
-  local attempts="${2:-20}"
+  local attempts="${2:-60}"
   local i
+  local code
 
   for i in $(seq 1 "$attempts"); do
-    if command -v curl >/dev/null 2>&1 && curl -fsS "$url" >/dev/null 2>&1; then
-      return 0
+    if command -v curl >/dev/null 2>&1; then
+      code="$(curl -sS -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true)"
+      case "$code" in
+        2??|3??)
+          return 0
+          ;;
+      esac
     fi
+    sleep 1
+  done
+
+  return 1
+}
+
+wait_for_frontend() {
+  local attempts="${1:-60}"
+  local i
+  local code
+  local url
+
+  for i in $(seq 1 "$attempts"); do
+    for url in "http://127.0.0.1:5173/" "http://localhost:5173/"; do
+      if command -v curl >/dev/null 2>&1; then
+        code="$(curl -sS -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true)"
+        case "$code" in
+          2??|3??)
+            return 0
+            ;;
+        esac
+      fi
+    done
     sleep 1
   done
 
@@ -120,7 +149,7 @@ BACKEND_PID=$!
 sleep 2
 
 log "[前端] 启动 React ..."
-node "$SCRIPT_DIR/web/node_modules/vite/bin/vite.js" --host 127.0.0.1 > "$LOG_DIR/frontend.log" 2> "$LOG_DIR/frontend.err.log" &
+node "$SCRIPT_DIR/web/node_modules/vite/bin/vite.js" --host 127.0.0.1 --strictPort > "$LOG_DIR/frontend.log" 2> "$LOG_DIR/frontend.err.log" &
 FRONTEND_PID=$!
 
 log "等待服务启动 ..."
@@ -135,7 +164,7 @@ else
   fi
 fi
 
-if wait_for_url "http://127.0.0.1:5173" 20; then
+if wait_for_frontend 60; then
   log "[成功] 前端已启动: http://127.0.0.1:5173"
 else
   log "[失败] 前端未响应" "ERROR"

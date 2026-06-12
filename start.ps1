@@ -46,6 +46,28 @@ if (Test-Path $venvPython) {
     $python = Get-Command python -ErrorAction SilentlyContinue
     if (-not $python) { $python = Get-Command python3 -ErrorAction SilentlyContinue }
 }
+
+function Test-HttpReady {
+    param(
+        [string[]]$Uris,
+        [int]$Attempts = 60
+    )
+
+    for ($i = 1; $i -le $Attempts; $i++) {
+        foreach ($uri in $Uris) {
+            try {
+                $r = Invoke-WebRequest -Uri $uri -TimeoutSec 3 -UseBasicParsing
+                if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 400) {
+                    return $true
+                }
+            } catch {
+            }
+        }
+        Start-Sleep -Seconds 1
+    }
+
+    return $false
+}
 if (-not $python) {
     $pyPath = "E:\Python\Python310\python.exe"
     if (Test-Path $pyPath) { $python = @{ Source = $pyPath } }
@@ -90,7 +112,7 @@ Start-Sleep -Seconds 2
 
 Write-Log "[前端] 启动 React ..."
 $frontendProc = Start-Process -FilePath $node.Source `
-    -ArgumentList "$scriptDir\web\node_modules\vite\bin\vite.js" `
+    -ArgumentList @("$scriptDir\web\node_modules\vite\bin\vite.js", "--host", "127.0.0.1", "--strictPort") `
     -WorkingDirectory "$scriptDir\web" `
     -RedirectStandardOutput "$logDir\frontend.log" `
     -RedirectStandardError "$logDir\frontend.err.log" `
@@ -118,13 +140,10 @@ if (-not $backendOk) {
     }
 }
 
-try {
-    $r = Invoke-WebRequest -Uri "http://127.0.0.1:5173" -TimeoutSec 3 -UseBasicParsing
-    if ($r.StatusCode -eq 200) {
-        $frontendOk = $true
-        Write-Log "[成功] 前端已启动: http://127.0.0.1:5173"
-    }
-} catch {}
+if (Test-HttpReady -Uris @("http://127.0.0.1:5173/", "http://localhost:5173/") -Attempts 60) {
+    $frontendOk = $true
+    Write-Log "[成功] 前端已启动: http://127.0.0.1:5173"
+}
 
 if (-not $frontendOk) {
     Write-Log "[失败] 前端未响应" "ERROR"
