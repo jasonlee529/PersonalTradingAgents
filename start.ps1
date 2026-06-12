@@ -119,10 +119,10 @@ if (-not $backendOk) {
 }
 
 try {
-    $r = Invoke-WebRequest -Uri "http://localhost:5173" -TimeoutSec 3 -UseBasicParsing
+    $r = Invoke-WebRequest -Uri "http://127.0.0.1:5173" -TimeoutSec 3 -UseBasicParsing
     if ($r.StatusCode -eq 200) {
         $frontendOk = $true
-        Write-Log "[成功] 前端已启动: http://localhost:5173"
+        Write-Log "[成功] 前端已启动: http://127.0.0.1:5173"
     }
 } catch {}
 

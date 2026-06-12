@@ -135,8 +135,8 @@ else
   fi
 fi
 
-if wait_for_url "http://localhost:5173" 20; then
-  log "[成功] 前端已启动: http://localhost:5173"
+if wait_for_url "http://127.0.0.1:5173" 20; then
+  log "[成功] 前端已启动: http://127.0.0.1:5173"
 else
   log "[失败] 前端未响应" "ERROR"
   if [ -f "$LOG_DIR/frontend.err.log" ]; then
