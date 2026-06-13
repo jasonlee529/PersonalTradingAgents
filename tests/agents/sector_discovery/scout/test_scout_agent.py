@@ -124,10 +124,39 @@ class TestScoutAgent:
             ),
         ]
 
-        candidates = agent._hot_signals_to_candidates(signals)
+        # Strict mode (default): filters out weak signals and noisy concepts
+        candidates_strict = agent._hot_signals_to_candidates(signals)
+        assert [cand.name for cand in candidates_strict] == ["AI算力", "半导体"]
+        assert candidates_strict[0].raw_metrics["limit_up_count"] == 3
+        assert candidates_strict[1].raw_metrics["order_flow_profile"] == 5e8
 
-        assert [cand.name for cand in candidates] == ["AI算力", "半导体"]
-        assert candidates[0].raw_metrics["limit_up_count"] == 3
-        assert candidates[1].raw_metrics["order_flow_profile"] == 5e8
+    def test_hot_candidates_relaxed_allows_weaker_signals(self, agent):
+        signals = [
+            HotSignal(
+                concept="机器人",
+                heat_level=1.2,
+                evidence="1股涨停",
+                market_heatmap=["603048"],
+                order_flow_profile=0.0,
+            ),
+            HotSignal(
+                concept="AI算力",
+                heat_level=2.5,
+                evidence="2股涨停",
+                market_heatmap=["1", "2"],
+                order_flow_profile=0.0,
+            ),
+        ]
 
+        # Strict mode: "机器人" (heat 1.2 < 4.0) and "AI算力" (heat 2.5 < 4.0,
+        #   limit_up 2 < 3, order_flow 0 < 5e8) are both filtered
+        candidates_strict = agent._hot_signals_to_candidates(signals)
+        assert len(candidates_strict) == 0
 
+        # Relaxed mode: lower thresholds (heat >= 2.0, limit_up >= 1, order_flow >= 1e8)
+        # "机器人" passes via limit_up_count=1 >= 1 (MIN_MARKET_HEAT_LIMIT_UP_RELAXED=1)
+        # "AI算力" passes via heat_level=2.5 >= 2.0 (MIN_MARKET_HEAT_RELAXED=2.0)
+        candidates_relaxed = agent._hot_signals_to_candidates(signals, relaxed=True)
+        assert len(candidates_relaxed) == 2
+        assert candidates_relaxed[0].name == "机器人"
+        assert candidates_relaxed[1].name == "AI算力"

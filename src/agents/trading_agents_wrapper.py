@@ -37,6 +37,7 @@ class TradingAgentsWrapper:
         self._lock = asyncio.Lock()
         self._data_bridge = None
         self._raw_store = RawStore(settings)
+        self._ta = None
 
         settings.ensure_dirs()
         self._ensure_internal_tradingagents_on_path()
@@ -67,7 +68,6 @@ class TradingAgentsWrapper:
             from src.agents.signal_tools import SIGNAL_TOOLS
 
             self._ta_config["extra_tools"] = list(SIGNAL_TOOLS)
-        self._ta = self._graph_factory.create(selected_analysts=self._default_analysts)
 
         if settings.signal_tools_enabled:
             logger.debug("Signal tools enabled via TradingAgentsGraph extra_tools config")
@@ -86,22 +86,49 @@ class TradingAgentsWrapper:
         Kimi on the Analysis page), the correct key must be present in the
         environment before the LLM client is created.
         """
+        p = provider or "deepseek"
         try:
             from tradingagents.llm_clients.api_key_env import get_api_key_env
             from tradingagents.llm_clients.provider_catalog import get_api_key_field
         except ImportError:
             logger.debug("TradingAgents LLM provider catalog unavailable; skipping API key env injection")
             return
-        p = provider or "deepseek"
         env_var = get_api_key_env(p)
         if not env_var:
-            return
+            # Provider might have been added after the worker started;
+            # reload the catalog and retry once.
+            if self._try_reload_provider_catalog():
+                env_var = get_api_key_env(p)
+            if not env_var:
+                return
         key_field = get_api_key_field(p)
         if key_field:
             api_key = getattr(self.settings, key_field, "")
             if api_key:
                 import os
                 os.environ[env_var] = api_key
+
+    @staticmethod
+    def _try_reload_provider_catalog() -> bool:
+        """Reload cached provider modules so long-running workers pick up
+        newly registered providers without a full restart."""
+        import importlib
+        import sys
+        import types
+
+        reloaded = False
+        for key in (
+            "tradingagents.llm_clients.provider_catalog",
+            "tradingagents.llm_clients.factory",
+        ):
+            mod = sys.modules.get(key)
+            if isinstance(mod, types.ModuleType):
+                try:
+                    importlib.reload(mod)
+                    reloaded = True
+                except Exception:
+                    pass
+        return reloaded
 
     async def analyze(
         self,
@@ -134,7 +161,12 @@ class TradingAgentsWrapper:
                 "quick_think_llm": self.settings.get_llm_model(provider, "quick"),
             }
 
-        graph = self._graph_factory.create(selected_analysts, config_overrides) if use_custom else self._ta
+        if use_custom:
+            graph = self._graph_factory.create(selected_analysts, config_overrides)
+        else:
+            if self._ta is None:
+                self._ta = self._graph_factory.create(selected_analysts=self._default_analysts)
+            graph = self._ta
 
         loop = asyncio.get_running_loop()
         if phase_reporter:

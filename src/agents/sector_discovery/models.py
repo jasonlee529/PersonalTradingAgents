@@ -197,6 +197,7 @@ class AgentExecutionRecord:
 class DirectionContext:
     """Shared state object across all analysis phases."""
     date: str
+    original_date: str = ""  # The date before normalization (for non-trading-day detection)
     market_overview: dict | None = None
     news_context: str = ""
     candidate_directions: list[CandidateDirection] = field(default_factory=list)
@@ -204,6 +205,11 @@ class DirectionContext:
     selected_directions: list[SelectedDirection] = field(default_factory=list)
     deep_analysis: dict[str, DeepAnalysis] = field(default_factory=dict)
     execution_log: list[AgentExecutionRecord] = field(default_factory=list)
+
+    @property
+    def is_non_trading_day(self) -> bool:
+        """True if the original date was adjusted because it fell on a non-trading day."""
+        return bool(self.original_date) and self.original_date != self.date
 
 
 @dataclass

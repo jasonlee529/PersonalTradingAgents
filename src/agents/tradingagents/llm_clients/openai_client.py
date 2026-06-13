@@ -3,6 +3,7 @@ import os
 import time
 from typing import Any, Optional
 
+import httpx
 from langchain_core.messages import AIMessage
 from langchain_openai import ChatOpenAI
 
@@ -186,6 +187,41 @@ class MinimaxChatOpenAI(NormalizedChatOpenAI):
         return payload
 
 
+class LlamaCppChatOpenAI(NormalizedChatOpenAI):
+    """llama.cpp-specific overrides for structured output.
+
+    llama-server exposes an OpenAI-compatible surface, but its tool calling
+    path is more brittle than a native OpenAI endpoint. In practice, the
+    generic function-calling route can inject a ``tool_choice`` object that
+    llama.cpp rejects for some chat templates / models. For this provider we
+    force JSON mode so structured-output users stay on the safer path.
+    """
+
+    def bind_tools(
+        self,
+        tools,
+        *,
+        tool_choice=None,
+        strict=None,
+        parallel_tool_calls=None,
+        response_format=None,
+        **kwargs,
+    ):
+        # llama.cpp's OpenAI-compatible chat endpoint is workable for plain
+        # chat and JSON-mode structured output, but its tool-calling path is
+        # brittle in LangChain. Returning the base model here keeps the pipeline
+        # on the stable path instead of emitting tool-calling payloads that can
+        # trigger 502s from the server.
+        logger.warning(
+            "llamacpp: tool binding disabled for stability; using plain chat instead"
+        )
+        return self
+
+    def with_structured_output(self, schema, *, method=None, **kwargs):
+        kwargs.setdefault("tool_choice", None)
+        return super().with_structured_output(schema, method="json_mode", **kwargs)
+
+
 # Kwargs forwarded from user config to ChatOpenAI
 _PASSTHROUGH_KWARGS = (
     "timeout", "max_retries", "reasoning_effort",
@@ -198,14 +234,18 @@ from .provider_catalog import get_default_base_url, list_provider_ids
 def _resolve_provider_base_url(provider: str) -> Optional[str]:
     """Default base URL for ``provider``, with env-var overrides where defined.
 
-    Currently only Ollama supports an env-var override (``OLLAMA_BASE_URL``),
-    matching the convention in the broader Ollama tooling ecosystem so users
-    can point at a remote ollama-serve without editing code. The check is
-    call-time, not import-time, so tests that monkeypatch the env after
-    import behave correctly.
+    Currently only local OpenAI-compatible runtimes support env-var overrides
+    (``OLLAMA_BASE_URL`` for Ollama and ``LLAMACPP_BASE_URL`` for llama.cpp),
+    so users can point the provider at a remote server without editing code.
+    The check is call-time, not import-time, so tests that monkeypatch the env
+    after import behave correctly.
     """
     if provider == "ollama":
         env_url = os.environ.get("OLLAMA_BASE_URL")
+        if env_url:
+            return env_url
+    if provider == "llamacpp":
+        env_url = os.environ.get("LLAMACPP_BASE_URL")
         if env_url:
             return env_url
     return get_default_base_url(provider) or None
@@ -252,7 +292,7 @@ class OpenAIClient(BaseLLMClient):
                         f"(e.g. add {api_key_env}=your_key to your .env file)."
                     )
             else:
-                llm_kwargs["api_key"] = "ollama"
+                llm_kwargs["api_key"] = self.provider
         elif self.base_url:
             llm_kwargs["base_url"] = self.base_url
 
@@ -260,6 +300,14 @@ class OpenAIClient(BaseLLMClient):
         for key in _PASSTHROUGH_KWARGS:
             if key in self.kwargs:
                 llm_kwargs[key] = self.kwargs[key]
+
+        # Local OpenAI-compatible servers (Ollama / llama.cpp) should not
+        # inherit system proxy settings. On Windows, httpx can otherwise route
+        # localhost requests through a corporate proxy and surface 502s even
+        # though the local server is healthy.
+        if self.provider in ("ollama", "llamacpp"):
+            llm_kwargs.setdefault("http_client", httpx.Client(trust_env=False))
+            llm_kwargs.setdefault("http_async_client", httpx.AsyncClient(trust_env=False))
 
         # Native OpenAI: use Responses API for consistent behavior across
         # all model families. Third-party providers use Chat Completions.
@@ -276,6 +324,8 @@ class OpenAIClient(BaseLLMClient):
             chat_cls = DeepSeekChatOpenAI
         elif self.provider in ("minimax", "minimax-cn"):
             chat_cls = MinimaxChatOpenAI
+        elif self.provider == "llamacpp":
+            chat_cls = LlamaCppChatOpenAI
         else:
             chat_cls = NormalizedChatOpenAI
         llm = chat_cls(**llm_kwargs)

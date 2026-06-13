@@ -7,6 +7,7 @@ settings API, CLI model picker, and LLM client construction.
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -206,6 +207,28 @@ _PROVIDER_REGISTRY: list[ProviderInfo] = [
         default_deep_model="",
         requires_api_key=False,
     ),
+    ProviderInfo(
+        id="llamacpp",
+        label="llama.cpp",
+        region="global",
+        default_base_url="http://localhost:8080/v1",
+        api_key_env=None,
+        api_key_field="",
+        default_quick_model="",
+        default_deep_model="",
+        requires_api_key=False,
+    ),
+ProviderInfo(
+        id="opencode-go",
+        label="OpenCode Go",
+        region="global",
+        default_base_url="https://opencode.ai/zen/go/v1",
+        api_key_env="OPENCODE_GO_API_KEY",
+        api_key_field="opencode_go_api_key",
+        default_quick_model="deepseek-v4-flash",
+        default_deep_model="deepseek-v4-pro",
+        requires_api_key=True,
+    ),
 ]
 
 _PROVIDER_MAP: dict[str, ProviderInfo] = {p.id: p for p in _PROVIDER_REGISTRY}
@@ -283,6 +306,9 @@ def resolve_model(provider: str, llm_type: str) -> str:
         model = info.default_deep_model
     else:
         raise ValueError(f"Unsupported LLM type: {llm_type}")
+
+    if provider.lower() == "llamacpp" and not model:
+        return os.environ.get("LLAMACPP_MODEL", "local-model")
 
     if not model:
         raise ValueError(

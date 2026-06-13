@@ -13,6 +13,7 @@ from src.agents.sector_discovery.llm_utils import SectorDiscoveryLLMError
 from src.config import Settings
 from src.data.cache import DataCache
 from src.data.collector import DataCollector
+from src.utils.trading_dates import is_weekend
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +21,11 @@ MIN_MARKET_HEAT = 4.0
 MIN_MARKET_HEAT_LIMIT_UP = 3
 MIN_MARKET_HEAT_ORDER_FLOW = 5e8
 NOISY_MARKET_HEAT_CONCEPTS = {"其他", "未分类", ""}
+
+# Relaxed thresholds for non-trading days or sparse data scenarios
+MIN_MARKET_HEAT_RELAXED = 2.0
+MIN_MARKET_HEAT_LIMIT_UP_RELAXED = 1
+MIN_MARKET_HEAT_ORDER_FLOW_RELAXED = 1e8
 
 
 class ScoutAgent:
@@ -36,7 +42,21 @@ class ScoutAgent:
         self.collector = collector
 
     async def scan(self, context: DirectionContext) -> list[CandidateDirection]:
-        """Run all scanners in parallel and produce candidate directions."""
+        """Run all scanners in parallel and produce candidate directions.
+
+        On non-trading days or when market data is sparse, thresholds are
+        automatically relaxed so that lower-confidence signals still pass
+        through instead of producing an empty candidate list.
+        """
+        # Determine whether to use relaxed thresholds
+        use_relaxed = context.is_non_trading_day or is_weekend(context.date)
+        if use_relaxed:
+            logger.info(
+                "ScoutAgent: non-trading day detected (date=%s, original=%s), "
+                "using relaxed thresholds",
+                context.date, context.original_date or "N/A",
+            )
+
         # Run all scanners concurrently
         results = await asyncio.gather(
             self._scan_market_heat(context.date),
@@ -59,13 +79,25 @@ class ScoutAgent:
         value_signals = results[3] if not isinstance(results[3], Exception) else []
         news_signals = results[4] if not isinstance(results[4], Exception) else []
 
+        logger.info(
+            "ScoutAgent: scanner results — hot=%d policy=%d fund=%d value=%d news=%d",
+            len(hot_signals), len(policy_signals),
+            len(fund_signals), len(value_signals), len(news_signals),
+        )
+
         # Convert scanner outputs to candidate directions
         candidates: list[CandidateDirection] = []
-        candidates.extend(self._hot_signals_to_candidates(hot_signals))
+        candidates.extend(self._hot_signals_to_candidates(hot_signals, relaxed=use_relaxed))
         candidates.extend(self._policy_signals_to_candidates(policy_signals))
         candidates.extend(self._fund_signals_to_candidates(fund_signals))
         candidates.extend(self._value_signals_to_candidates(value_signals))
         candidates.extend(self._news_signals_to_candidates(news_signals))
+
+        # If no candidates with strict/relaxed thresholds AND hot_signals had raw data,
+        # try one more time with fully relaxed thresholds
+        if not candidates and hot_signals:
+            logger.info("ScoutAgent: retrying hot signals with fully relaxed thresholds")
+            candidates.extend(self._hot_signals_to_candidates(hot_signals, relaxed=True))
 
         # Deduplicate by name
         seen: set[str] = set()
@@ -136,7 +168,7 @@ class ScoutAgent:
             logger.warning("ScoutAgent: NewsAnalyst failed: %s", e)
             return []
 
-    def _hot_signals_to_candidates(self, signals: list) -> list[CandidateDirection]:
+    def _hot_signals_to_candidates(self, signals: list, *, relaxed: bool = False) -> list[CandidateDirection]:
         candidates = []
         for sig in signals:
             concept = getattr(sig, "concept", "")
@@ -145,9 +177,10 @@ class ScoutAgent:
             stock_count = len(getattr(sig, "market_heatmap", []))
             if not concept:
                 continue
-            if not self._is_actionable_hot_signal(concept, heat_level, stock_count, order_flow_profile):
+            if not self._is_actionable_hot_signal(concept, heat_level, stock_count, order_flow_profile, relaxed=relaxed):
                 logger.info(
-                    "ScoutAgent: skipped weak hot-money signal concept=%s heat=%.1f limit_up=%d order_flow_profile=%.0f",
+                    "ScoutAgent: skipped %s hot-money signal concept=%s heat=%.1f limit_up=%d order_flow_profile=%.0f",
+                    "relaxed" if relaxed else "strict",
                     concept,
                     heat_level,
                     stock_count,
@@ -184,15 +217,25 @@ class ScoutAgent:
         heat_level: float,
         limit_up_count: int,
         order_flow_profile: float,
+        *,
+        relaxed: bool = False,
     ) -> bool:
-        """Keep only hot-money signals with enough breadth or fund confirmation."""
+        """Keep only hot-money signals with enough breadth or fund confirmation.
+
+        When *relaxed* is True (non-trading day or sparse data), use lower
+        thresholds so weaker signals still pass through instead of being
+        silently discarded.
+        """
         if concept in NOISY_MARKET_HEAT_CONCEPTS:
             return False
-        if limit_up_count >= MIN_MARKET_HEAT_LIMIT_UP:
+        min_heat = MIN_MARKET_HEAT_RELAXED if relaxed else MIN_MARKET_HEAT
+        min_limit_up = MIN_MARKET_HEAT_LIMIT_UP_RELAXED if relaxed else MIN_MARKET_HEAT_LIMIT_UP
+        min_order_flow = MIN_MARKET_HEAT_ORDER_FLOW_RELAXED if relaxed else MIN_MARKET_HEAT_ORDER_FLOW
+        if limit_up_count >= min_limit_up:
             return True
-        if order_flow_profile >= MIN_MARKET_HEAT_ORDER_FLOW:
+        if order_flow_profile >= min_order_flow:
             return True
-        return heat_level >= MIN_MARKET_HEAT
+        return heat_level >= min_heat
 
     def _policy_signals_to_candidates(self, signals: list) -> list[CandidateDirection]:
         candidates = []
@@ -273,5 +316,3 @@ class ScoutAgent:
                 evidence_signals=[evidence],
             ))
         return candidates
-
-

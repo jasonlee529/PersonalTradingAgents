@@ -35,8 +35,12 @@ PERSISTED_SETTINGS_FIELDS: dict[str, str] = {
     "openrouter_deep_model": "OPENROUTER_DEEP_MODEL",
     "kimi_quick_model": "KIMI_QUICK_MODEL",
     "kimi_deep_model": "KIMI_DEEP_MODEL",
+    "opencode_go_quick_model": "OPENCODE_GO_QUICK_MODEL",
+    "opencode_go_deep_model": "OPENCODE_GO_DEEP_MODEL",
     "ollama_quick_model": "OLLAMA_QUICK_MODEL",
     "ollama_deep_model": "OLLAMA_DEEP_MODEL",
+    "llamacpp_quick_model": "LLAMACPP_QUICK_MODEL",
+    "llamacpp_deep_model": "LLAMACPP_DEEP_MODEL",
     "openai_api_key": "OPENAI_API_KEY",
     "deepseek_api_key": "DEEPSEEK_API_KEY",
     "anthropic_api_key": "ANTHROPIC_API_KEY",
@@ -51,6 +55,7 @@ PERSISTED_SETTINGS_FIELDS: dict[str, str] = {
     "minimax_cn_api_key": "MINIMAX_CN_API_KEY",
     "openrouter_api_key": "OPENROUTER_API_KEY",
     "kimi_api_key": "KIMI_API_KEY",
+    "opencode_go_api_key": "OPENCODE_GO_API_KEY",
     "scheduler_enabled": "SCHEDULER_ENABLED",
     "analysis_schedule": "ANALYSIS_SCHEDULE",
     "daily_direction_notification_enabled": "DAILY_DIRECTION_NOTIFICATION_ENABLED",
@@ -239,8 +244,12 @@ class Settings(BaseSettings):
     openrouter_deep_model: str = ""
     kimi_quick_model: str = ""
     kimi_deep_model: str = ""
+    opencode_go_quick_model: str = ""
+    opencode_go_deep_model: str = ""
     ollama_quick_model: str = ""
     ollama_deep_model: str = ""
+    llamacpp_quick_model: str = ""
+    llamacpp_deep_model: str = ""
     llm_timeout: float = 600.0
 
     # Sector Discovery — mock mode returns hard-coded templates without LLM calls
@@ -261,6 +270,7 @@ class Settings(BaseSettings):
     minimax_cn_api_key: str = ""
     openrouter_api_key: str = ""
     kimi_api_key: str = ""
+    opencode_go_api_key: str = ""
 
     # Graph
     max_debate_rounds: int = 2
@@ -271,6 +281,9 @@ class Settings(BaseSettings):
     scheduler_enabled: bool = False
     analysis_schedule: str = "0 9 * * 1-5"
     analysis_worker_enabled: bool = True
+    # Maximum seconds a single analysis job may run before being cancelled.
+    # Prevents orphaned "running" status when an LLM call hangs indefinitely.
+    analysis_timeout_seconds: int = 600  # 10 minutes
 
     # Data source priority (fallback chain per data type)
     # Priority: sina/eastmoney/tencent > baostock
@@ -389,8 +402,29 @@ class Settings(BaseSettings):
         self.analysis_artifacts_dir.mkdir(parents=True, exist_ok=True)
         self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
+    def _reload_provider_catalog(self) -> None:
+        """Reload the provider catalog module so long-running workers pick up
+        code changes without needing a full restart."""
+        import importlib
+        import sys
+        import types
+
+        for key in (
+            "src.agents.tradingagents.llm_clients.provider_catalog",
+            "tradingagents.llm_clients.provider_catalog",
+            "src.agents.tradingagents.llm_clients.factory",
+            "tradingagents.llm_clients.factory",
+        ):
+            mod = sys.modules.get(key)
+            if isinstance(mod, types.ModuleType):
+                try:
+                    importlib.reload(mod)
+                except Exception:
+                    pass
+
     def get_llm_api_key(self, provider: str) -> str:
         """Return the API key for an LLM provider."""
+        self._reload_provider_catalog()
         from src.agents.tradingagents.llm_clients.provider_catalog import get_api_key_field
 
         key_field = get_api_key_field(provider)
@@ -398,6 +432,7 @@ class Settings(BaseSettings):
 
     def get_llm_model(self, provider: str, llm_type: str) -> str:
         """Return provider-specific model override, falling back to catalog default."""
+        self._reload_provider_catalog()
         from src.agents.tradingagents.llm_clients.provider_catalog import (
             get_model_settings_field,
             resolve_model,

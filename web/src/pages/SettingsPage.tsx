@@ -197,7 +197,7 @@ export default function SettingsPage() {
       return resp.data
     },
     onSuccess: () => {
-      Message.success('Settings saved')
+      Message.success('保存成功')
       queryClient.invalidateQueries({ queryKey: ['settings'] })
     },
     onError: () => Message.error('Failed to save settings'),

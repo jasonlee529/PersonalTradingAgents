@@ -23,10 +23,25 @@ class TestDirectionContext:
     def test_default_initialization(self):
         ctx = DirectionContext(date="2026-06-04")
         assert ctx.date == "2026-06-04"
+        assert ctx.original_date == ""
+        assert ctx.is_non_trading_day is False
         assert ctx.candidate_directions == []
         assert ctx.validation_results == []
         assert ctx.selected_directions == []
         assert ctx.deep_analysis == {}
+
+    def test_non_trading_day_detection(self):
+        # original_date differs from date → non-trading day
+        ctx = DirectionContext(date="2026-06-12", original_date="2026-06-14")
+        assert ctx.is_non_trading_day is True
+
+        # Same date → not a non-trading day
+        ctx2 = DirectionContext(date="2026-06-12", original_date="2026-06-12")
+        assert ctx2.is_non_trading_day is False
+
+        # Empty original_date → not a non-trading day (default)
+        ctx3 = DirectionContext(date="2026-06-12")
+        assert ctx3.is_non_trading_day is False
 
     def test_with_candidates(self):
         candidate = CandidateDirection(

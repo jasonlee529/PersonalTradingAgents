@@ -43,7 +43,7 @@ from src.utils.trading_dates import normalize_trade_date
 logger = logging.getLogger(__name__)
 
 AGENT_TIMEOUTS = {
-    "scout": 60,
+    "scout": 180,
     "validator": 30,
     "comparator": 20,
     "chain_analyst": 120,
@@ -91,8 +91,9 @@ class Coordinator:
         requested_date = context.date
         context.date = normalize_trade_date(context.date)
         if requested_date != context.date:
+            context.original_date = requested_date
             logger.info(
-                "Coordinator: normalized requested date %s to trade date %s",
+                "Coordinator: normalized requested date %s to trade date %s (non-trading day)",
                 requested_date,
                 context.date,
             )
@@ -500,10 +501,21 @@ class Coordinator:
     def _fallback_report(self, context: DirectionContext, reason: str) -> DirectionReport:
         """Return a fallback DirectionReport when pipeline fails early."""
         logger.warning("Coordinator fallback: %s", reason)
+        date_info = context.date
+        if context.is_non_trading_day:
+            date_info = f"{context.date} (原始请求日期 {context.original_date} 为非交易日)"
         return DirectionReport(
             date=context.date,
             sectors=[],
-            summary=f"[Fallback] 方向分析未能完成。原因: {reason}",
+            summary=(
+                f"[Fallback] 方向分析未能完成。原因: {reason}\n\n"
+                f"日期: {date_info}\n"
+                "可能原因:\n"
+                "• 非交易日运行，市场热度数据不可用\n"
+                "• 数据源返回空数据或响应异常\n"
+                "• 当日市场信号不足，未能通过筛选阈值\n\n"
+                "建议: 在交易日运行，或检查数据源配置。"
+            ),
         )
 
     def _no_recommendation_report(self, context: DirectionContext) -> DirectionReport:

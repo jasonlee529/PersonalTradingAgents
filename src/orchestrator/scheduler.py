@@ -128,9 +128,11 @@ class SectorDiscoveryHandler(TaskHandler):
             cache = DataCache(self.settings)
             await cache.init_db()
             collector = DataCollector(self.settings, cache)
-            trade_date = normalize_trade_date(datetime.now().strftime("%Y-%m-%d"))
+            now_str = datetime.now().strftime("%Y-%m-%d")
+            trade_date = normalize_trade_date(now_str)
             context = DirectionContext(
                 date=trade_date,
+                original_date=now_str,
                 market_overview={},
                 news_context="",
             )

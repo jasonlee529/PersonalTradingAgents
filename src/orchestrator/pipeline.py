@@ -1,6 +1,7 @@
 # src/orchestrator/pipeline.py
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
 from datetime import datetime
@@ -13,7 +14,7 @@ from src.data.cache import DataCache
 from src.knowledge.raw_store import RawStore
 from src.orchestrator.job_store import JobStore
 from src.orchestrator.phase_reporter import PhaseReporter
-from src.orchestrator.state import AnalysisJob
+from src.orchestrator.state import AnalysisJob, StepStatus
 from src.portfolio.manager import PortfolioManager
 
 logger = logging.getLogger(__name__)
@@ -82,13 +83,17 @@ class AnalysisPipeline:
             holding = await self.portfolio.get_holding(symbol)
             company_name = holding.name if holding else None
 
-            final_state, _ = await self.ta_wrapper.analyze(
-                symbol,
-                trade_date=trade_date,
-                selected_analysts=selected_analysts,
-                config_overrides=config_overrides,
-                company_name=company_name,
-                phase_reporter=reporter,
+            timeout_seconds = getattr(self.settings, "analysis_timeout_seconds", 600) or 600
+            final_state, _ = await asyncio.wait_for(
+                self.ta_wrapper.analyze(
+                    symbol,
+                    trade_date=trade_date,
+                    selected_analysts=selected_analysts,
+                    config_overrides=config_overrides,
+                    company_name=company_name,
+                    phase_reporter=reporter,
+                ),
+                timeout=timeout_seconds,
             )
 
             decision = final_state.get("final_trade_decision", "")
@@ -120,10 +125,88 @@ class AnalysisPipeline:
             await self.job_store.save(job)
             logger.info("Analysis complete for %s: %s", symbol, summary)
 
+        except asyncio.TimeoutError:
+            timeout_seconds = getattr(self.settings, "analysis_timeout_seconds", 600) or 600
+            logger.error("Analysis timed out for %s after %ss", symbol, timeout_seconds)
+
+            # Determine how much analysis actually completed.
+            # Step IDs are ordered logically: prepare -> analysts -> debate ->
+            # trader -> risk -> final_decision -> packaging.  Count how far we
+            # got by finding the last step that has meaningful content.
+            _STEP_PROGRESS = [
+                "prepare_data",
+                "analyst_market", "analyst_sentiment", "analyst_news",
+                "analyst_fundamentals", "analyst_catalyst", "analyst_flow_risk",
+                "debate_bull", "debate_bear", "debate_judge",
+                "trader_plan",
+                "risk_aggressive", "risk_conservative", "risk_neutral",
+                "final_decision",
+            ]
+            _step_map = {s.step_id: s for s in job.steps}
+            last_done_idx = -1
+            for i, sid in enumerate(_STEP_PROGRESS):
+                step = _step_map.get(sid)
+                if step and (step.status == StepStatus.DONE or step.detail):
+                    last_done_idx = i
+                else:
+                    break
+
+            # Fix steps that have content but weren't marked DONE due to the
+            # timeout race — update their status to reflect reality.
+            for sid in _STEP_PROGRESS[: last_done_idx + 1]:
+                step = _step_map.get(sid)
+                if step and step.status == StepStatus.RUNNING and step.detail:
+                    step.status = StepStatus.DONE
+                    step.completed_at = step.completed_at or datetime.now()
+
+            if last_done_idx >= _STEP_PROGRESS.index("trader_plan"):
+                # At least all analysts + debate + trader plan completed.
+                # This is genuinely useful analysis data even without the
+                # final synthesis — mark the job as done, not failed.
+                await reporter.on_complete()
+                # Mark remaining steps that didn't run as skipped.
+                _COMPLETION_STEP_IDS = [
+                    sid for sid in _STEP_PROGRESS
+                    if _STEP_PROGRESS.index(sid) > last_done_idx
+                ] + ["final_packaging", "completed"]
+                for sid in _COMPLETION_STEP_IDS:
+                    step = _step_map.get(sid)
+                    if step and step.status == StepStatus.PENDING:
+                        step.status = StepStatus.DONE
+                        step.detail = step.detail or "Skipped: timed out"
+                        step.completed_at = step.completed_at or datetime.now()
+                # If final_decision has content, include it in the summary.
+                fd_step = _step_map.get("final_decision")
+                if fd_step and fd_step.detail:
+                    summary = fd_step.detail[:200]
+                else:
+                    last_step = _step_map.get(_STEP_PROGRESS[last_done_idx])
+                    last_label = last_step.label if last_step else "analysis"
+                    summary = f"Analysis timed out after {last_label} (partial — {last_done_idx + 1}/{len(_STEP_PROGRESS)} core steps done)"
+                job.complete(summary)
+                await self.job_store.save(job)
+                logger.info(
+                    "Recovering timed-out job %s: %d/%d core steps done, completing as partial",
+                    symbol, last_done_idx + 1, len(_STEP_PROGRESS),
+                )
+                return job
+            else:
+                await reporter.on_error(
+                    job.phase or "preparing",
+                    f"Analysis timed out after {timeout_seconds}s (only {last_done_idx + 1} core steps completed)",
+                )
+                job.fail(
+                    f"Analysis timed out after {timeout_seconds}s "
+                    f"(only {last_done_idx + 1}/{len(_STEP_PROGRESS)} core steps completed)"
+                )
+                await self.job_store.save(job)
+                raise
         except Exception as e:
             logger.error("Analysis failed for %s: %s", symbol, e)
-            await reporter.on_error("preparing", str(e))
-            job.error = str(e)
+            current_phase = job.phase or "preparing"
+            await reporter.on_error(current_phase, str(e))
+            if not job.error:
+                job.fail(str(e))
             await self.job_store.save(job)
             raise
 

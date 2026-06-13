@@ -170,6 +170,11 @@ class TestTradingAgentsWrapper:
         sys.modules["tradingagents.llm_clients"] = MagicMock()
         sys.modules["tradingagents.llm_clients.api_key_env"] = MagicMock()
         sys.modules["tradingagents.llm_clients.api_key_env"].get_api_key_env = MagicMock(return_value=None)
+        sys.modules["tradingagents.llm_clients.provider_catalog"] = MagicMock()
+        sys.modules["tradingagents.llm_clients.provider_catalog"].get_api_key_field = MagicMock(return_value="")
+        sys.modules["tradingagents.agents"] = MagicMock()
+        sys.modules["tradingagents.agents.analyst_registry"] = MagicMock()
+        sys.modules["tradingagents.agents.analyst_registry"].AnalystRegistry = MagicMock()
 
         mock_cache = MagicMock()
         with patch("src.agents.trading_agents_wrapper.TradingAgentsWrapper._ensure_internal_tradingagents_on_path", return_value=None):
@@ -185,5 +190,7 @@ class TestTradingAgentsWrapper:
             "tradingagents", "tradingagents.graph", "tradingagents.graph.trading_graph",
             "tradingagents.default_config", "tradingagents.dataflows", "tradingagents.dataflows.interface",
             "tradingagents.dataflows.stockstats_utils", "tradingagents.llm_clients", "tradingagents.llm_clients.api_key_env",
+            "tradingagents.llm_clients.provider_catalog",
+            "tradingagents.agents", "tradingagents.agents.analyst_registry",
         ]:
             sys.modules.pop(mod, None)

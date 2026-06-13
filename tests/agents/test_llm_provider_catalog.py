@@ -27,15 +27,18 @@ def test_llm_provider_catalog_coverage():
         "openrouter",
         "kimi",
         "ollama",
+        "llamacpp",
+        "opencode-go",
     }
     assert expected.issubset(ids)
 
-    custom_only = {"azure", "openrouter", "ollama"}
+    custom_only = {"azure", "openrouter", "ollama", "llamacpp"}
+    no_api_key_field = {"ollama", "llamacpp"}
     for provider in providers:
         assert provider.id
         assert provider.label
         assert provider.region in ("global", "china")
-        assert provider.api_key_field or provider.id == "ollama"
+        assert provider.api_key_field or provider.id in no_api_key_field
         if provider.id not in custom_only:
             assert provider.default_quick_model
             assert provider.default_deep_model

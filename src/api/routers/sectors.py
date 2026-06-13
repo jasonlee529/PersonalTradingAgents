@@ -211,9 +211,12 @@ async def _run_discovery_background(
         cache = DataCache(settings)
         await cache.init_db()
         collector = DataCollector(settings, cache)
-        trade_date = normalize_trade_date(datetime.now().strftime("%Y-%m-%d"))
+        now_str = datetime.now().strftime("%Y-%m-%d")
+        original_date = now_str
+        trade_date = normalize_trade_date(now_str)
         context = DirectionContext(
             date=trade_date,
+            original_date=original_date,
             market_overview={},
             news_context="",
         )

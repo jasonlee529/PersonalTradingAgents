@@ -140,10 +140,10 @@ class AppServices:
         if self._worker_process.poll() is None:
             self._worker_process.terminate()
             try:
-                self._worker_process.wait(timeout=5)
+                self._worker_process.wait(timeout=15)
             except subprocess.TimeoutExpired:
                 self._worker_process.kill()
-                self._worker_process.wait(timeout=5)
+                self._worker_process.wait(timeout=10)
             logger.info("Analysis worker process stopped pid=%s", self._worker_process.pid)
         self._worker_process = None
         for handle in self._worker_log_handles:

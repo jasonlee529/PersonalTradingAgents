@@ -140,6 +140,10 @@ PRICING_TABLE: Dict[str, Dict[str, Dict[str, float]]] = {
     "ollama": {
         "default": {"input": 0.0, "output": 0.0},
     },
+    # --- llama.cpp (local, free) ---
+    "llamacpp": {
+        "default": {"input": 0.0, "output": 0.0},
+    },
 }
 
 
@@ -155,6 +159,7 @@ _CURRENCY_MAP = {
     "minimax": "$", "minimax-cn": "CNY ",
     "openrouter": "$",
     "ollama": "$",
+    "llamacpp": "$",
 }
 
 

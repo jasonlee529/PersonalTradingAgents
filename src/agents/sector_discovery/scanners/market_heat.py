@@ -10,6 +10,7 @@ Output: HotSignal[] (concept + heat_level + evidence + market_heatmap)
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from typing import Optional
@@ -18,6 +19,7 @@ from src.agents.sector_discovery.models import HotSignal
 from src.config import Settings
 from src.data.cache import DataCache
 from src.data.collector import DataCollector
+from src.utils.trading_dates import get_recent_trade_dates
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +85,57 @@ class MarketHeatScanner:
         self.collector = data_collector or DataCollector(settings, cache)
 
     async def scan(self, trade_date: str = "") -> list[HotSignal]:
-        """Fetch hot stocks and fund flows, extract hot concepts."""
+        """Fetch hot stocks and fund flows, extract hot concepts.
+
+        If the primary trade_date yields no data (common on non-trading days
+        or when data sources don't serve historical data), automatically
+        retries with recent trading days.
+
+        Each date attempt is individually timed out to avoid a single slow
+        API call consuming the entire scout time budget.
+        """
+        if not trade_date:
+            from datetime import date
+            trade_date = date.today().strftime("%Y-%m-%d")
+
+        # Try primary date first, then fallback to recent trading days
+        dates_to_try = get_recent_trade_dates(trade_date, count=5)
+        for attempt_date in dates_to_try:
+            try:
+                results = await asyncio.wait_for(
+                    self._scan_for_date(attempt_date),
+                    timeout=15,
+                )
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "MarketHeatScanner: _scan_for_date(%s) timed out after 15s, trying next date",
+                    attempt_date,
+                )
+                continue
+            except Exception as exc:
+                logger.warning(
+                    "MarketHeatScanner: _scan_for_date(%s) failed: %s, trying next date",
+                    attempt_date,
+                    exc,
+                )
+                continue
+            if results:
+                if attempt_date != trade_date:
+                    logger.info(
+                        "MarketHeatScanner: primary date %s had no data, "
+                        "using data from %s instead (%d hot concepts)",
+                        trade_date, attempt_date, len(results),
+                    )
+                return results
+
+        logger.warning(
+            "MarketHeatScanner: no hot concept data for %s or recent trading days",
+            trade_date,
+        )
+        return []
+
+    async def _scan_for_date(self, trade_date: str) -> list[HotSignal]:
+        """Extract hot concepts for a single date. Returns empty list if no data."""
         concept_map: dict[str, dict] = {}
 
         # 1. Hot stocks (limit-up + reasons)
@@ -155,7 +207,7 @@ class MarketHeatScanner:
         logger.info(
             "MarketHeatScanner: detected %d hot concepts for %s",
             len(results),
-            trade_date or "latest",
+            trade_date,
         )
         return results[:10]  # Top 10 concepts
 
