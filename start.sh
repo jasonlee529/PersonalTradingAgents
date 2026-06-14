@@ -83,7 +83,6 @@ wait_for_frontend() {
     for url in "http://127.0.0.1:5173/" "http://localhost:5173/" "http://0.0.0.0:5173/"; do
       if command -v curl >/dev/null 2>&1; then
         code="$(curl -sS -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true)"
-        echo "$code $url $i"
         case "$code" in
           2??|3??)
             return 0
@@ -154,7 +153,10 @@ BACKEND_PID=$!
 sleep 2
 
 log "[前端] 启动 React ..."
-node "$SCRIPT_DIR/web/node_modules/vite/bin/vite.js" --host 0.0.0.0 --strictPort > "$LOG_DIR/frontend.log" 2> "$LOG_DIR/frontend.err.log" &
+(
+  cd "$SCRIPT_DIR/web"
+  node "node_modules/vite/bin/vite.js" --host 0.0.0.0 --strictPort
+) > "$LOG_DIR/frontend.log" 2> "$LOG_DIR/frontend.err.log" &
 FRONTEND_PID=$!
 
 log "等待服务启动 ..."
