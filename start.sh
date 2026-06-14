@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 set -eu
-if [[ -n "${BASH_VERSION:-}" ]]; then
+if [ -n "${BASH_VERSION:-}" ]; then
   set -o pipefail
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
+echo "$SCRIPT_DIR"
 
 export PYTHONPATH="$SCRIPT_DIR"
 export NO_PROXY="127.0.0.1,localhost"
