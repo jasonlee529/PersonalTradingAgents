@@ -76,7 +76,7 @@ wait_for_frontend() {
   local url
 
   for i in $(seq 1 "$attempts"); do
-    for url in "http://127.0.0.1:5173/" "http://localhost:5173/"; do
+    for url in "http://127.0.0.1:5173/" "http://localhost:5173/" "http://0.0.0.0:5173/"; do
       if command -v curl >/dev/null 2>&1; then
         code="$(curl -sS -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || true)"
         case "$code" in

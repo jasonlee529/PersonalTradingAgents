@@ -175,7 +175,7 @@ class Settings(BaseSettings):
     wiki_ingest_batch_size: int = 10
 
     # API
-    api_host: str = "127.0.0.1"
+    api_host: str = "0.0.0.0"
     api_port: int = 8000
     cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
