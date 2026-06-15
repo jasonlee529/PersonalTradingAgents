@@ -1830,10 +1830,348 @@ html, body, #root {
    Responsive
    ============================================================ */
 
+/* ============================================================
+   Page Grid Layouts
+   ============================================================ */
+
+.page-grid-two-col-sider {
+  display: grid;
+  grid-template-columns: 360px minmax(0, 1fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.page-grid-two-col-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(360px, 0.8fr);
+  gap: 20px;
+  align-items: start;
+}
+
+.page-grid-two-col-equal {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.trade-entry-row {
+  display: grid;
+  grid-template-columns: 230px 120px 110px 110px minmax(120px, 1fr) 40px;
+  gap: 8px;
+  align-items: end;
+}
+
+.trade-override-row {
+  display: grid;
+  grid-template-columns: 90px 130px 130px 130px minmax(0, 1fr);
+  gap: 8px;
+  align-items: end;
+}
+
+.trade-notes-row {
+  display: grid;
+  grid-template-columns: 1fr 220px;
+  gap: 8px;
+  align-items: start;
+  margin-top: 10px;
+}
+
+/* ============================================================
+   Mobile Drawer Sidebar
+   ============================================================ */
+
+.mobile-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 99;
+  animation: fadeIn 0.2s ease forwards;
+}
+
+.mobile-sider {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 260px;
+  z-index: 100;
+  background: var(--bg-sider);
+  border-right: 1px solid var(--border-subtle);
+  transform: translateX(-100%);
+  transition: transform 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.mobile-sider-open {
+  transform: translateX(0);
+  box-shadow: 8px 0 32px rgba(0, 0, 0, 0.5);
+}
+
+/* ============================================================
+   Responsive — Tablet (768px)
+   ============================================================ */
+
 @media (max-width: 768px) {
-  .arco-layout-sider { position: fixed !important; z-index: 100; }
   .metric-value { font-size: 22px; }
-  .page-header-title { font-size: 20px; }
+  .page-header-title { font-size: 18px; }
+
+  .page-header {
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 20px;
+  }
+
+  .page-header > div {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* DataList 移动端卡片布局 */
+  .data-list-header {
+    display: none !important;
+  }
+
+  .data-list-row {
+    display: flex !important;
+    flex-direction: column;
+    gap: 8px;
+    padding: 14px 16px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    margin-bottom: 8px;
+    background: var(--bg-card);
+  }
+
+  .data-list-row:last-child {
+    margin-bottom: 0;
+  }
+
+  .data-list-cell {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    text-align: left;
+    padding: 2px 0;
+  }
+
+  .data-list-cell::before {
+    content: attr(data-label);
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    min-width: 80px;
+    flex-shrink: 0;
+  }
+
+  .data-list-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  /* Analysis history list 移动端 */
+  .history-list-header {
+    display: none !important;
+  }
+
+  .history-list-item {
+    display: flex !important;
+    flex-direction: column;
+    gap: 6px;
+    padding: 12px 14px;
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-md);
+    margin-bottom: 8px;
+    background: var(--bg-card);
+  }
+
+  .history-list-item > div {
+    display: flex;
+    justify-content: space-between;
+    padding: 2px 0;
+  }
+
+  /* Arco 组件移动端覆盖 */
+  .arco-modal {
+    width: 95vw !important;
+    max-width: 95vw !important;
+    margin: 0 !important;
+  }
+
+  .arco-modal-content {
+    padding: 16px !important;
+  }
+
+  .arco-card-body {
+    padding: 14px !important;
+  }
+
+  .arco-card-header {
+    padding: 12px 14px !important;
+  }
+
+  .arco-table-container {
+    overflow-x: auto;
+  }
+
+  /* Segmented tabs 横向滚动 */
+  .segmented-tabs-nav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    width: 100%;
+  }
+
+  .segmented-tabs-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .segmented-tabs-item {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Form 移动端 */
+  .arco-form-inline .arco-form-item {
+    width: 100% !important;
+    margin-right: 0 !important;
+  }
+
+  .arco-grid-row .arco-grid-col {
+    margin-bottom: 8px;
+  }
+
+  /* Metric card grid */
+  .metric-card-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  /* Page grid layouts 移动端 */
+  .page-grid-two-col-sider,
+  .page-grid-two-col-split {
+    grid-template-columns: 1fr;
+  }
+
+  .page-grid-two-col-equal {
+    grid-template-columns: 1fr;
+  }
+
+  .trade-entry-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .trade-override-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .trade-notes-row {
+    grid-template-columns: 1fr;
+  }
+
+  /* Arco Grid 移动端：所有列全宽 */
+  .arco-grid-row .arco-grid-col {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+
+  .arco-grid-row {
+    row-gap: 12px !important;
+  }
+
+  .metric-card {
+    padding: 14px;
+  }
+
+  /* Arco Tabs 移动端 */
+  .arco-tabs-nav {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+
+  .arco-tabs-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .arco-tabs-tab {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  /* Report content 移动端 */
+  .report-content {
+    padding: 14px;
+    font-size: 13px;
+  }
+
+  .report-content h1 { font-size: 18px; }
+  .report-content h2 { font-size: 16px; }
+
+  .report-content table {
+    display: block;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Analysis detail 移动端 */
+  .analysis-detail-head {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .workflow-canvas-scroll {
+    padding: 8px;
+  }
+
+  /* Sectors page 移动端 */
+  .sectors-report-meta {
+    flex-wrap: wrap;
+  }
+}
+
+/* ============================================================
+   Responsive — Small phone (480px)
+   ============================================================ */
+
+@media (max-width: 480px) {
+  .metric-card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .metric-value {
+    font-size: 20px;
+  }
+
+  .page-header-title {
+    font-size: 16px;
+  }
+
+  .arco-card-body {
+    padding: 12px !important;
+  }
+
+  .arco-card-header {
+    padding: 10px 12px !important;
+  }
+
+  .arco-card-header-title {
+    font-size: 13px;
+  }
+
+  .data-list-row {
+    padding: 12px;
+  }
+
+  .data-list-pagination {
+    padding: 10px 12px 0;
+  }
 }
 
 .metric-card-grid {

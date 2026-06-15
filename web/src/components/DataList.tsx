@@ -109,7 +109,7 @@ export default function DataList<T>({
                 onClick={rowProps.onClick}
               >
                 {columns.map((col, cidx) => (
-                  <div key={cidx} className="data-list-cell">
+                  <div key={cidx} className="data-list-cell" data-label={col.title}>
                     {col.render
                       ? col.render(getValue(record, col.dataIndex), record, idx)
                       : String(getValue(record, col.dataIndex) ?? '-')

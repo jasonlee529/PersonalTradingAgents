@@ -94,7 +94,7 @@ export default function RawSourceDetailPage() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '360px minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
+      <div className="page-grid-two-col-sider">
         <Card title="元数据" className="metadata-card">
           <Descriptions
             column={1}

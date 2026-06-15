@@ -137,7 +137,7 @@ export default function ManualSourceNewPage() {
         </Button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '360px minmax(0, 1fr)', gap: 20, alignItems: 'start' }}>
+      <div className="page-grid-two-col-sider">
         <Card title="材料信息">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
             <Input placeholder="标题" value={title} onChange={setTitle} />

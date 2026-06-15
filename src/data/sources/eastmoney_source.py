@@ -230,6 +230,18 @@ class EastmoneySource(DataSource):
     ) -> Optional[list[dict]]:
         if not trade_date:
             trade_date = datetime.now().strftime("%Y-%m-%d")
+
+        # 尝试 push2ex 专用接口
+        items = await self._fetch_limit_up_push2ex(trade_date)
+        if items is not None and len(items) > 0:
+            return items
+
+        # push2ex 失败或无数据，回退到 datacenter 龙虎榜接口
+        logger.info("push2ex limit-up pool empty for %s, trying datacenter fallback", trade_date)
+        return await self._fetch_limit_up_datacenter(trade_date)
+
+    async def _fetch_limit_up_push2ex(self, trade_date: str) -> Optional[list[dict]]:
+        """原 push2ex 涨停池专用接口。"""
         date_param = trade_date.replace("-", "")
         try:
             url = "https://push2ex.eastmoney.com/getTopicZTPool"
@@ -267,9 +279,70 @@ class EastmoneySource(DataSource):
                     "reason": row.get("hybk") or row.get("reason") or "",
                     "source": self.name,
                 })
-            return items
+            return items if items else None
         except Exception as e:
-            logger.warning("Eastmoney limit-up pool failed for %s: %s", trade_date, e)
+            logger.warning("Eastmoney push2ex limit-up failed for %s: %s", trade_date, e)
+            return None
+
+    async def _fetch_limit_up_datacenter(self, trade_date: str) -> Optional[list[dict]]:
+        """通过龙虎榜 datacenter 接口获取涨停股票（备选方案）。"""
+        try:
+            url = "https://datacenter-web.eastmoney.com/api/data/v1/get"
+            params = {
+                "reportName": "RPT_DAILYBILLBOARD_DETAILSNEW",
+                "columns": "SECURITY_CODE,SECURITY_NAME_ABBR,CHANGE_RATE,CLOSE_PRICE,ACCUM_AMOUNT,ACCUM_VOLUME,TURNOVERRATE,TRADE_DATE",
+                "pageSize": "500",
+                "pageNumber": "1",
+                "sortColumns": "CHANGE_RATE",
+                "sortTypes": "-1",
+                "source": "WEB",
+                "client": "WEB",
+                "filter": f"(TRADE_DATE>='{trade_date}')",
+            }
+            r = await asyncio.to_thread(
+                requests.get, url, params=params, headers={"User-Agent": _UA, "Referer": "https://data.eastmoney.com/"}, timeout=15
+            )
+            result = r.json().get("result") or {}
+            rows = result.get("data") or []
+            if not rows:
+                return None
+
+            # 按涨幅筛选涨停股：主板 >=9.9%，创业板/科创板 >=19.9%
+            seen: set[str] = set()
+            items: list[dict] = []
+            for row in rows:
+                code = str(row.get("SECURITY_CODE") or "").zfill(6)
+                if not code or code in seen:
+                    continue
+                change = self._number_or_none(row.get("CHANGE_RATE"))
+                if change is None:
+                    continue
+                # 主板涨停阈值 10%，创业板/科创板 20%
+                is_mainboard = code.startswith(("60", "00"))
+                threshold = 9.9 if is_mainboard else 19.9
+                if change < threshold:
+                    continue
+                seen.add(code)
+                items.append({
+                    "symbol": code,
+                    "name": row.get("SECURITY_NAME_ABBR") or "",
+                    "market": "sh" if code.startswith("6") else "sz",
+                    "trade_date": trade_date,
+                    "price": self._number_or_none(row.get("CLOSE_PRICE")),
+                    "change_pct": change,
+                    "volume": self._int_or_none(row.get("ACCUM_VOLUME")),
+                    "turnover": self._number_or_none(row.get("ACCUM_AMOUNT")),
+                    "turnover_rate": self._number_or_none(row.get("TURNOVERRATE")),
+                    "first_limit_up_time": None,
+                    "last_limit_up_time": None,
+                    "seal_amount": None,
+                    "consecutive_days": None,
+                    "reason": "",
+                    "source": self.name,
+                })
+            return items if items else None
+        except Exception as e:
+            logger.warning("Eastmoney datacenter limit-up fallback failed for %s: %s", trade_date, e)
             return None
 
     async def get_news(self, symbol: str, start_date: str = "", end_date: str = "", limit: int = 20) -> Optional[list[dict]]:

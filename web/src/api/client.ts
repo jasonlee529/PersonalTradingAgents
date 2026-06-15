@@ -83,6 +83,7 @@ export interface LimitUpStockListResponse {
   limit: number
   offset: number
   items: LimitUpStockItem[]
+  error?: string
 }
 
 export interface LimitUpStockParams {

@@ -42,7 +42,9 @@ async def list_limit_up_stocks(
     offset: int = Query(0, ge=0),
     services: AppServices = Depends(get_services),
 ):
-    rows = await services.collector.get_limit_up_stocks(trade_date=trade_date, market=market) or []
+    rows, error = await services.collector.get_limit_up_stocks(trade_date=trade_date, market=market)
+    if rows is None:
+        rows = []
     filtered = [item for item in rows if _matches_query(item, q)]
     total = len(filtered)
     page = filtered[offset:offset + limit]
@@ -53,6 +55,7 @@ async def list_limit_up_stocks(
         limit=limit,
         offset=offset,
         items=[LimitUpStockItem(**item) for item in page],
+        error=error,
     )
 
 

@@ -99,6 +99,7 @@ class LimitUpStockListResponse(BaseModel):
     limit: int
     offset: int
     items: list[LimitUpStockItem]
+    error: str = ""
 
 
 class KlineRecord(BaseModel):

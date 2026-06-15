@@ -133,7 +133,7 @@ export default function WikiHomePage() {
           </Card>
 
           <Card title="统计">
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div className="page-grid-two-col-equal">
               <Statistic title="总页面" value={(pages || []).filter((p: any) => p.page_type !== 'home' && p.page_type !== 'log').length} />
               <Statistic title="待处理" value={(pendingSources || []).length} />
             </div>

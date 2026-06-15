@@ -6,7 +6,8 @@ import { useQuery } from '@tanstack/react-query'
 import { stockApi, type LimitUpStockItem, type LimitUpStockListResponse } from '../api/client'
 
 function today(): string {
-  return new Date().toISOString().slice(0, 10)
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 function displayNumber(value?: number | null, digits = 2): string {
@@ -204,8 +205,15 @@ export default function LimitUpPage() {
           <Empty
             description={
               <div>
-                <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 8 }}>暂无匹配结果</div>
-                <div style={{ color: 'var(--text-dim)' }}>请调整交易日、市场范围或搜索关键字</div>
+                <div style={{ fontSize: 16, fontWeight: 500, marginBottom: 8 }}>
+                  {query.data?.error ? '数据获取失败' : '暂无匹配结果'}
+                </div>
+                <div style={{ color: 'var(--text-dim)', marginBottom: query.data?.error ? 12 : 0 }}>
+                  {query.data?.error || '请调整交易日、市场范围或搜索关键字'}
+                </div>
+                {query.data?.error && (
+                  <Button type="primary" onClick={() => query.refetch()}>重新加载</Button>
+                )}
               </div>
             }
           />

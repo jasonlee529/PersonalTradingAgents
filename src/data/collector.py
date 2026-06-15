@@ -93,7 +93,7 @@ class DataCollector:
             elif data_type == "research_reports":
                 priority = ["eastmoney"]
             elif data_type == "limit_up_stocks":
-                priority = ["eastmoney", "ths"]
+                priority = ["eastmoney"]
             else:
                 priority = []
 
@@ -434,11 +434,96 @@ class DataCollector:
 
     async def get_limit_up_stocks(
         self, trade_date: str = "", market: str = "all"
-    ) -> Optional[list[dict]]:
-        rows = await self._fetch_with_fallback(
-            "limit_up_stocks", "get_limit_up_stocks", trade_date=trade_date, market=market
-        )
-        return self._filter_mainboard_limit_up(rows or [], market)
+    ) -> tuple[Optional[list[dict]], str]:
+        """Returns (rows, error_msg). error_msg is empty on success."""
+        # 1. 优先使用 tushare
+        rows, err = await self._fetch_limit_up_tushare(trade_date)
+        if rows is not None:
+            return self._filter_mainboard_limit_up(rows, market), ""
+
+        # 2. 回退到东方财富
+        try:
+            rows = await self._fetch_with_fallback(
+                "limit_up_stocks", "get_limit_up_stocks", trade_date=trade_date, market=market
+            )
+        except Exception as e:
+            logger.error("get_limit_up_stocks fallback failed: %s", e)
+            return None, str(e)
+        if rows is None:
+            return [], err or "数据源请求失败，无法获取涨停数据"
+        return self._filter_mainboard_limit_up(rows or [], market), ""
+
+    async def _fetch_limit_up_tushare(
+        self, trade_date: str
+    ) -> tuple[Optional[list[dict]], str]:
+        """通过 tushare Pro limit_list_d 获取涨停池数据。"""
+        token = getattr(self.settings, "tushare_api_key", "")
+        if not token:
+            return None, "未配置 tushare_api_key"
+
+        if not trade_date:
+            from datetime import datetime
+            trade_date = datetime.now().strftime("%Y-%m-%d")
+        ts_date = trade_date.replace("-", "")
+
+        try:
+            import tushare as ts
+
+            def _query():
+                pro = ts.pro_api(token)
+                df = pro.limit_list_d(trade_date=ts_date, limit_type="U")
+                return df
+
+            import asyncio
+            df = await asyncio.to_thread(_query)
+
+            if df is None or df.empty:
+                return None, f"tushare 涨停池无 {trade_date} 数据"
+
+            items: list[dict] = []
+            for _, row in df.iterrows():
+                code = str(row.get("ts_code", "")).split(".")[0].zfill(6)
+                if not code or code == "000000":
+                    continue
+                items.append({
+                    "symbol": code,
+                    "name": str(row.get("name") or ""),
+                    "market": "sh" if code.startswith("6") else "sz",
+                    "trade_date": trade_date,
+                    "price": self._safe_float(row.get("close")),
+                    "change_pct": self._safe_float(row.get("pct_chg")),
+                    "volume": None,
+                    "turnover": self._safe_float(row.get("fd_amount")),
+                    "turnover_rate": self._safe_float(row.get("fl_ratio")),
+                    "first_limit_up_time": str(row.get("first_time") or "") or None,
+                    "last_limit_up_time": str(row.get("last_time") or "") or None,
+                    "seal_amount": self._safe_float(row.get("fd_amount")),
+                    "consecutive_days": self._safe_int(row.get("open_times")),
+                    "reason": "",
+                    "source": "tushare",
+                })
+            logger.info("tushare limit-up pool: %d stocks for %s", len(items), trade_date)
+            return items, ""
+        except ImportError:
+            return None, "tushare 未安装"
+        except Exception as e:
+            logger.warning("tushare limit_list_d failed for %s: %s", trade_date, e)
+            return None, f"tushare 请求失败: {e}"
+
+    @staticmethod
+    def _safe_float(v) -> Optional[float]:
+        try:
+            f = float(v)
+            return f if not (f != f) else None  # NaN check
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _safe_int(v) -> Optional[int]:
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
 
     async def get_sector_rankings(self, n: int = 5) -> Optional[tuple[list[dict], list[dict]]]:
         return await self._fetch_with_fallback("sector_rankings", "get_sector_rankings", n=n)

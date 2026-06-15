@@ -178,7 +178,7 @@ export default function DailyTradeLogPage() {
         <Button type="primary" icon={<IconSave />} loading={saveMutation.isPending} onClick={handleSave}>保存</Button>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.2fr) minmax(360px, 0.8fr)', gap: 20, alignItems: 'start' }}>
+      <div className="page-grid-two-col-split">
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
           <Card title="操作明细">
             <div style={{ display: 'flex', gap: 12, marginBottom: 16, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -191,7 +191,7 @@ export default function DailyTradeLogPage() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {entries.map((entry, index) => (
                 <div key={index} style={{ border: '1px solid var(--border-subtle)', borderRadius: 8, padding: 12, background: 'rgba(245,241,235,0.02)' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '230px 120px 110px 110px minmax(120px, 1fr) 40px', gap: 8, alignItems: 'end' }}>
+                  <div className="trade-entry-row">
                     <div>
                       <FieldLabel>股票</FieldLabel>
                       <Select
@@ -226,7 +226,7 @@ export default function DailyTradeLogPage() {
                     <Tag color="arcoblue">成交额 {amount(entry).toFixed(2)}</Tag>
                     <Button type="text" status="danger" icon={<IconDelete />} onClick={() => setEntries((prev) => prev.filter((_, i) => i !== index))} />
                   </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 220px', gap: 8, alignItems: 'start', marginTop: 10 }}>
+                  <div className="trade-notes-row">
                     <TextArea placeholder="操作理由" value={entry.reason} onChange={(v) => patchEntry(index, { reason: v })} rows={2} />
                     <Input placeholder="关联分析 run_id（可选）" value={entry.linked_analysis_run_id} onChange={(v) => patchEntry(index, { linked_analysis_run_id: v })} />
                   </div>
@@ -241,7 +241,7 @@ export default function DailyTradeLogPage() {
             ) : (
               <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                 {overrides.map((override, index) => (
-                  <div key={override.symbol} style={{ display: 'grid', gridTemplateColumns: '90px 130px 130px 130px minmax(0,1fr)', gap: 8, alignItems: 'end' }}>
+                  <div key={override.symbol} className="trade-override-row">
                     <Tag>{override.symbol}</Tag>
                     <div>
                       <FieldLabel>最终数量</FieldLabel>
