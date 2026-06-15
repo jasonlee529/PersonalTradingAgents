@@ -74,6 +74,33 @@ class QuoteResponse(BaseModel):
     change_pct: float
 
 
+class LimitUpStockItem(BaseModel):
+    symbol: str
+    name: str = ""
+    market: str = ""
+    trade_date: str
+    price: Optional[float] = None
+    change_pct: Optional[float] = None
+    volume: Optional[int] = None
+    turnover: Optional[float] = None
+    turnover_rate: Optional[float] = None
+    first_limit_up_time: Optional[str] = None
+    last_limit_up_time: Optional[str] = None
+    seal_amount: Optional[float] = None
+    consecutive_days: Optional[int] = None
+    reason: str = ""
+    source: str = ""
+
+
+class LimitUpStockListResponse(BaseModel):
+    trade_date: str
+    market: str
+    total: int
+    limit: int
+    offset: int
+    items: list[LimitUpStockItem]
+
+
 class KlineRecord(BaseModel):
     date: str
     open: float

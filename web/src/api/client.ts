@@ -58,7 +58,43 @@ export const portfolioApi = {
 }
 
 // Stocks
+export interface LimitUpStockItem {
+  symbol: string
+  name: string
+  market: string
+  trade_date: string
+  price?: number | null
+  change_pct?: number | null
+  volume?: number | null
+  turnover?: number | null
+  turnover_rate?: number | null
+  first_limit_up_time?: string | null
+  last_limit_up_time?: string | null
+  seal_amount?: number | null
+  consecutive_days?: number | null
+  reason?: string
+  source?: string
+}
+
+export interface LimitUpStockListResponse {
+  trade_date: string
+  market: string
+  total: number
+  limit: number
+  offset: number
+  items: LimitUpStockItem[]
+}
+
+export interface LimitUpStockParams {
+  trade_date?: string
+  market?: string
+  q?: string
+  limit?: number
+  offset?: number
+}
+
 export const stockApi = {
+  limitUp: (params?: LimitUpStockParams) => api.get<LimitUpStockListResponse>('/stocks/limit-up', { params }),
   quote: (symbol: string) => api.get(`/stocks/${symbol}/quote`),
   kline: (symbol: string, period?: string, limit?: number) =>
     api.get(`/stocks/${symbol}/kline`, { params: { period, limit } }),

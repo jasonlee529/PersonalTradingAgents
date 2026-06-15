@@ -202,6 +202,76 @@ class EastmoneySource(DataSource):
             logger.warning("Eastmoney fundamentals failed for %s: %s", code, e)
             return None
 
+    @staticmethod
+    def _number_or_none(value):
+        if value in (None, "", "-"):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _int_or_none(value):
+        number = EastmoneySource._number_or_none(value)
+        return int(number) if number is not None else None
+
+    @staticmethod
+    def _limit_up_time(value) -> str | None:
+        if value in (None, "", "-"):
+            return None
+        text = str(value).strip()
+        if len(text) == 6 and text.isdigit():
+            return f"{text[:2]}:{text[2:4]}:{text[4:6]}"
+        return text
+
+    async def get_limit_up_stocks(
+        self, trade_date: str = "", market: str = "all"
+    ) -> Optional[list[dict]]:
+        if not trade_date:
+            trade_date = datetime.now().strftime("%Y-%m-%d")
+        date_param = trade_date.replace("-", "")
+        try:
+            url = "https://push2ex.eastmoney.com/getTopicZTPool"
+            params = {
+                "ut": "7eea3edcaed734bea9cbfc24409ed989",
+                "d": date_param,
+                "pageindex": "0",
+                "pagesize": "10000",
+                "sort": "fbt:asc",
+            }
+            r = await asyncio.to_thread(
+                requests.get, url, params=params, headers={"User-Agent": _UA}, timeout=15
+            )
+            data = r.json().get("data") or {}
+            rows = data.get("pool") or []
+            items = []
+            for row in rows:
+                code = str(row.get("c") or row.get("code") or "").zfill(6)
+                if not code or code == "000000":
+                    continue
+                items.append({
+                    "symbol": code,
+                    "name": row.get("n") or row.get("name") or "",
+                    "market": "sh" if code.startswith("6") else "sz",
+                    "trade_date": trade_date,
+                    "price": self._number_or_none(row.get("p")),
+                    "change_pct": self._number_or_none(row.get("zdp")),
+                    "volume": self._int_or_none(row.get("volume") or row.get("v")),
+                    "turnover": self._number_or_none(row.get("amount")),
+                    "turnover_rate": self._number_or_none(row.get("turnoverrate")),
+                    "first_limit_up_time": self._limit_up_time(row.get("fbt")),
+                    "last_limit_up_time": self._limit_up_time(row.get("lbt")),
+                    "seal_amount": self._number_or_none(row.get("fund")),
+                    "consecutive_days": self._int_or_none(row.get("lbc")),
+                    "reason": row.get("hybk") or row.get("reason") or "",
+                    "source": self.name,
+                })
+            return items
+        except Exception as e:
+            logger.warning("Eastmoney limit-up pool failed for %s: %s", trade_date, e)
+            return None
+
     async def get_news(self, symbol: str, start_date: str = "", end_date: str = "", limit: int = 20) -> Optional[list[dict]]:
         code = str(normalize_ticker(symbol)).zfill(6)
         try:

@@ -1,10 +1,12 @@
-from fastapi import APIRouter, Depends
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, Query
 
 from src.api.dependencies import get_services, AppServices
 from src.api.models import (
     QuoteResponse, KlineResponse, KlineRecord, FundamentalsResponse,
     StockSnapshotResponse, NewsItem, AnnouncementItem, ResearchReportItem,
-    IndicatorResponse,
+    IndicatorResponse, LimitUpStockItem, LimitUpStockListResponse,
 )
 from src.data.collector import DEFAULT_KLINE_LIMIT
 
@@ -22,6 +24,36 @@ def _fundamentals_response(symbol: str, data: dict | None) -> FundamentalsRespon
         except (TypeError, ValueError):
             raw[key] = None
     return FundamentalsResponse(**raw)
+
+
+def _matches_query(item: dict, q: str) -> bool:
+    if not q:
+        return True
+    needle = q.strip().lower()
+    return needle in str(item.get("symbol", "")).lower() or needle in str(item.get("name", "")).lower()
+
+
+@router.get("/limit-up", response_model=LimitUpStockListResponse)
+async def list_limit_up_stocks(
+    trade_date: str = Query(default_factory=lambda: datetime.now().strftime("%Y-%m-%d")),
+    market: str = "all",
+    q: str = "",
+    limit: int = Query(100, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    services: AppServices = Depends(get_services),
+):
+    rows = await services.collector.get_limit_up_stocks(trade_date=trade_date, market=market) or []
+    filtered = [item for item in rows if _matches_query(item, q)]
+    total = len(filtered)
+    page = filtered[offset:offset + limit]
+    return LimitUpStockListResponse(
+        trade_date=trade_date,
+        market=market,
+        total=total,
+        limit=limit,
+        offset=offset,
+        items=[LimitUpStockItem(**item) for item in page],
+    )
 
 
 @router.get("/{symbol}/quote", response_model=QuoteResponse)

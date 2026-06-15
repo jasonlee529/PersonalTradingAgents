@@ -92,6 +92,8 @@ class DataCollector:
                 priority = ["ths", "cninfo"]
             elif data_type == "research_reports":
                 priority = ["eastmoney"]
+            elif data_type == "limit_up_stocks":
+                priority = ["eastmoney", "ths"]
             else:
                 priority = []
 
@@ -122,6 +124,7 @@ class DataCollector:
                 "indicators": self.settings.cache_ttl_indicators,
                 "announcements": self.settings.cache_ttl_announcements,
                 "research_reports": self.settings.cache_ttl_research_reports,
+                "limit_up_stocks": self.settings.cache_ttl_quotes,
             }
             ttl = ttl_map.get(data_type, 3600)
             await self.cache.set(key, result, ttl=ttl)
@@ -167,6 +170,7 @@ class DataCollector:
                 "indicators": self.settings.cache_ttl_indicators,
                 "announcements": self.settings.cache_ttl_announcements,
                 "research_reports": self.settings.cache_ttl_research_reports,
+                "limit_up_stocks": self.settings.cache_ttl_quotes,
             }
             ttl = ttl_map.get(data_type, 3600)
             await self.cache.set(key, merged, ttl=ttl)
@@ -226,6 +230,34 @@ class DataCollector:
         for r in remote:
             by_date[r["date"]] = r
         return sorted(by_date.values(), key=lambda x: x["date"])
+
+    @staticmethod
+    def _mainboard_market(symbol: str) -> str | None:
+        code = str(symbol or "").strip().zfill(6)
+        if len(code) != 6 or not code.isdigit():
+            return None
+        if code.startswith("60"):
+            return "sh"
+        if code.startswith("00"):
+            return "sz"
+        return None
+
+    @classmethod
+    def _filter_mainboard_limit_up(cls, rows: list[dict], market: str = "all") -> list[dict]:
+        market = (market or "all").lower()
+        results = []
+        for row in rows or []:
+            item = dict(row)
+            board_market = cls._mainboard_market(str(item.get("symbol", "")))
+            if board_market is None:
+                continue
+            if market in {"sh", "sse", "sh_main"} and board_market != "sh":
+                continue
+            if market in {"sz", "szse", "sz_main"} and board_market != "sz":
+                continue
+            item["market"] = board_market
+            results.append(item)
+        return results
 
     # ---- Core data ----
     @staticmethod
@@ -399,6 +431,14 @@ class DataCollector:
 
     async def get_market_statistics(self) -> Optional[dict]:
         return await self._fetch_with_fallback("market_statistics", "get_market_statistics")
+
+    async def get_limit_up_stocks(
+        self, trade_date: str = "", market: str = "all"
+    ) -> Optional[list[dict]]:
+        rows = await self._fetch_with_fallback(
+            "limit_up_stocks", "get_limit_up_stocks", trade_date=trade_date, market=market
+        )
+        return self._filter_mainboard_limit_up(rows or [], market)
 
     async def get_sector_rankings(self, n: int = 5) -> Optional[tuple[list[dict], list[dict]]]:
         return await self._fetch_with_fallback("sector_rankings", "get_sector_rankings", n=n)

@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect } from 'react'
 import { Button, Card, Select, Spin, Grid, Typography } from '@arco-design/web-react'
 import { IconRobot } from '@arco-design/web-react/icon'
 import { useQuery } from '@tanstack/react-query'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { stockApi } from '../api/client'
 import { usePortfolioStore } from '../store/usePortfolioStore'
 import { useStockStore, type KlineRecord, type Quote, type Fundamentals, type NewsItem } from '../store/useStockStore'
@@ -18,12 +18,18 @@ export default function StockDetailPage() {
   const { quote, kline, fundamentals, indicators, news, announcements, researchReports, setQuote, setKline, setFundamentals, setIndicators, setNews, setAnnouncements, setResearchReports, reset } = useStockStore()
   const selectedHolding = holdings.find((h) => h.holding.symbol === selectedSymbol)
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const urlSymbol = searchParams.get('symbol')?.trim() || ''
 
   useEffect(() => {
-    if (!selectedSymbol && holdings.length > 0) {
+    if (urlSymbol && urlSymbol !== selectedSymbol) {
+      setSelectedSymbol(urlSymbol)
+      return
+    }
+    if (!urlSymbol && !selectedSymbol && holdings.length > 0) {
       setSelectedSymbol(holdings[0].holding.symbol)
     }
-  }, [selectedSymbol, holdings, setSelectedSymbol])
+  }, [urlSymbol, selectedSymbol, holdings, setSelectedSymbol])
 
   useEffect(() => {
     return () => {
@@ -65,7 +71,7 @@ export default function StockDetailPage() {
   if (!selectedSymbol) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-        <Text type="secondary">请先添加持仓</Text>
+        <Text type="secondary">请先添加持仓，或从涨停池选择股票</Text>
       </div>
     )
   }

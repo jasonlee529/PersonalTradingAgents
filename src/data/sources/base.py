@@ -109,6 +109,12 @@ class DataSource(ABC):
         """Market breadth stats: up/down/flat count, limit-up/down, turnover. Override if supported."""
         return None
 
+    async def get_limit_up_stocks(
+        self, trade_date: str = "", market: str = "all"
+    ) -> Optional[list[dict]]:
+        """Daily limit-up stock pool. Override if supported."""
+        return None
+
     async def get_sector_rankings(self, n: int = 5) -> Optional[tuple[list[dict], list[dict]]]:
         """Top and bottom performing sectors. Override if supported."""
         return None
