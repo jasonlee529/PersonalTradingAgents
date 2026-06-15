@@ -121,18 +121,10 @@ $frontendProc = Start-Process -FilePath $node.Source `
 Write-Log "等待服务启动 ..."
 Start-Sleep -Seconds 5
 
-$backendOk = $false
-$frontendOk = $false
-
-try {
-    $r = Invoke-WebRequest -Uri "http://127.0.0.1:8000/docs" -TimeoutSec 3 -UseBasicParsing
-    if ($r.StatusCode -eq 200) {
-        $backendOk = $true
-        Write-Log "[成功] 后端已启动: http://127.0.0.1:8000/docs"
-    }
-} catch {}
-
-if (-not $backendOk) {
+$backendOk = Test-HttpReady -Uris @("http://127.0.0.1:8000/docs") -Attempts 30
+if ($backendOk) {
+    Write-Log "[成功] 后端已启动: http://127.0.0.1:8000/docs"
+} else {
     Write-Log "[失败] 后端未响应" "ERROR"
     if (Test-Path "$logDir\backend.err.log") {
         Write-Host "--- backend.err.log (last 20 lines) ---" -ForegroundColor Yellow
@@ -140,6 +132,7 @@ if (-not $backendOk) {
     }
 }
 
+$frontendOk = $false
 if (Test-HttpReady -Uris @("http://127.0.0.1:5173/", "http://localhost:5173/") -Attempts 60) {
     $frontendOk = $true
     Write-Log "[成功] 前端已启动: http://127.0.0.1:5173"

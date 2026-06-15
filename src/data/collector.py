@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -436,9 +436,22 @@ class DataCollector:
         self, trade_date: str = "", market: str = "all"
     ) -> tuple[Optional[list[dict]], str]:
         """Returns (rows, error_msg). error_msg is empty on success."""
-        # 1. 优先使用 tushare
+        import os
+        limit_up_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "limit_up")
+        os.makedirs(limit_up_dir, exist_ok=True)
+
+        # 0. 优先读取本地文件缓存
+        if trade_date:
+            local_data = self._read_limit_up_from_file(trade_date, limit_up_dir)
+            if local_data:
+                logger.info("读取本地涨停池数据: %d stocks for %s", len(local_data), trade_date)
+                return self._filter_mainboard_limit_up(local_data, market), ""
+
+        # 1. 使用 tushare
         rows, err = await self._fetch_limit_up_tushare(trade_date)
         if rows is not None:
+            if trade_date:
+                self._write_limit_up_to_file(trade_date, rows, limit_up_dir)
             return self._filter_mainboard_limit_up(rows, market), ""
 
         # 2. 回退到东方财富
@@ -451,7 +464,36 @@ class DataCollector:
             return None, str(e)
         if rows is None:
             return [], err or "数据源请求失败，无法获取涨停数据"
+        if trade_date:
+            self._write_limit_up_to_file(trade_date, rows, limit_up_dir)
         return self._filter_mainboard_limit_up(rows or [], market), ""
+
+    @staticmethod
+    def _read_limit_up_from_file(trade_date: str, data_dir: str) -> Optional[list[dict]]:
+        import os
+        import json
+        filename = f"limit_up_{trade_date}.json"
+        filepath = os.path.join(data_dir, filename)
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    return json.load(f)
+            except Exception as e:
+                logger.warning("读取本地涨停池文件失败 %s: %s", filepath, e)
+        return None
+
+    @staticmethod
+    def _write_limit_up_to_file(trade_date: str, data: list[dict], data_dir: str) -> None:
+        import os
+        import json
+        filename = f"limit_up_{trade_date}.json"
+        filepath = os.path.join(data_dir, filename)
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=2)
+            logger.debug("写入本地涨停池文件: %s", filepath)
+        except Exception as e:
+            logger.warning("写入本地涨停池文件失败 %s: %s", filepath, e)
 
     async def _fetch_limit_up_tushare(
         self, trade_date: str
