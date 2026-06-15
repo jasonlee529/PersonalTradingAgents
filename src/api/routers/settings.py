@@ -186,6 +186,12 @@ def _settings_to_response(s) -> SettingsResponse:
         trade_min_commission=s.trade_min_commission,
         trade_stamp_tax_rate=s.trade_stamp_tax_rate,
         trade_transfer_fee_rate=s.trade_transfer_fee_rate,
+        xueqiu_cookie=s.xueqiu_cookie,
+        xueqiu_auto_cookie=s.xueqiu_auto_cookie,
+        xueqiu_timeout=s.xueqiu_timeout,
+        tushare_api_key=s.tushare_api_key,
+        fund_holdings_refresh_enabled=s.fund_holdings_refresh_enabled,
+        fund_holdings_refresh_schedule=s.fund_holdings_refresh_schedule,
     )
 
 

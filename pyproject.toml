@@ -30,6 +30,7 @@ dependencies = [
     "uvicorn[standard]>=0.32.0",
     "websockets>=13.0",
     "browser-cookie3>=0.20.1",
+    "tushare>=1.2.0",
 ]
 
 [project.optional-dependencies]

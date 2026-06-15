@@ -53,6 +53,13 @@ _DEFAULT_TASKS: list[dict] = [
         "enabled": False,
         "cron": "0 8 * * 1-5",
     },
+    {
+        "id": "fund_holdings",
+        "name": "基金持仓刷新",
+        "description": "从 Tushare 刷新持仓股票的基金持仓数据",
+        "enabled": False,
+        "cron": "0 2 * * 1-5",
+    },
 ]
 
 
@@ -188,6 +195,59 @@ class SectorDiscoveryHandler(TaskHandler):
             return {"success": False, "message": str(e)}
 
 
+class FundHoldingsHandler(TaskHandler):
+    """Handler for scheduled fund holdings refresh from Tushare."""
+
+    def __init__(self, settings: Any = None, portfolio: Any = None):
+        self.settings = settings
+        self.portfolio = portfolio
+
+    async def run(self) -> dict:
+        logger.info("Scheduled fund holdings refresh triggered")
+
+        if not self.settings:
+            return {"success": False, "message": "Settings not available"}
+
+        # Check if enabled and token exists
+        if not getattr(self.settings, "fund_holdings_refresh_enabled", False):
+            return {"success": True, "message": "Fund holdings refresh disabled"}
+
+        token = getattr(self.settings, "tushare_api_key", "")
+        if not token:
+            return {"success": False, "message": "Tushare API key not configured"}
+
+        try:
+            # Import here to avoid circular imports
+            from src.data.fund_holdings_job import FundHoldingsRefreshJob
+
+            holdings = []
+            if self.portfolio:
+                holdings = await self.portfolio.list_holdings()
+
+            if not holdings:
+                return {"success": True, "message": "No holdings to refresh"}
+
+            symbols = [h.symbol for h in holdings]
+            job = FundHoldingsRefreshJob(self.settings)
+            result = await job.run(symbols)
+
+            if result.get("skipped"):
+                return {"success": False, "message": result.get("reason", "Tushare unavailable")}
+
+            return {
+                "success": True,
+                "message": f"Fund holdings refreshed: {result.get('processed', 0)} processed, {result.get('skipped', 0)} skipped, {result.get('failed', 0)} failed",
+                "processed": result.get("processed", 0),
+                "skipped": result.get("skipped", 0),
+                "failed": result.get("failed", 0),
+            }
+        except ImportError:
+            return {"success": False, "message": "Tushare not installed"}
+        except Exception as e:
+            logger.error("Scheduled fund holdings refresh failed: %s", e)
+            return {"success": False, "message": str(e)}
+
+
 class AnalysisScheduler:
     """Registry-based multi-task scheduler using APScheduler."""
 
@@ -233,6 +293,14 @@ class AnalysisScheduler:
             cron="0 8 * * 1-5",
             handler_factory=lambda: SectorDiscoveryHandler(self.settings),
         )
+        self._tasks["fund_holdings"] = ScheduledTask(
+            id="fund_holdings",
+            name="基金持仓刷新",
+            description="从 Tushare 刷新持仓股票的基金持仓数据",
+            enabled=False,
+            cron="0 2 * * 1-5",
+            handler_factory=lambda: FundHoldingsHandler(self.settings, self.portfolio),
+        )
 
     async def load_tasks(self) -> list[dict]:
         """Load task configs from DB; seed defaults if table is empty."""
@@ -241,11 +309,16 @@ class AnalysisScheduler:
             # Seed from legacy settings on first run
             legacy_analysis_enabled = getattr(self.settings, "scheduler_enabled", False)
             legacy_cron = getattr(self.settings, "analysis_schedule", "0 9 * * 1-5")
+            legacy_fund_enabled = getattr(self.settings, "fund_holdings_refresh_enabled", False)
+            legacy_fund_cron = getattr(self.settings, "fund_holdings_refresh_schedule", "0 2 * * 1-5")
             for defaults in _DEFAULT_TASKS:
                 task = dict(defaults)
                 if task["id"] == "analysis":
                     task["enabled"] = legacy_analysis_enabled
                     task["cron"] = legacy_cron
+                if task["id"] == "fund_holdings":
+                    task["enabled"] = legacy_fund_enabled
+                    task["cron"] = legacy_fund_cron
                 await self.job_store.save_scheduled_task(task)
             db_tasks = await self.job_store.list_scheduled_tasks()
 
