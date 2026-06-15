@@ -169,4 +169,25 @@ class TestCoordinator:
         assert report.date == "2026-06-05"
         assert context.date == "2026-06-05"
 
+    @pytest.mark.asyncio
+    async def test_ensure_report_context_fetches_market_and_news(self, coordinator):
+        coordinator.collector.get_market_indices = AsyncMock(
+            return_value=[{"name": "上证指数", "current": 3123.45, "change_pct": -0.12}]
+        )
+        coordinator.collector.get_market_statistics = AsyncMock(
+            return_value={"limit_up_count": 52, "limit_down_count": 8, "total_amount": 8200}
+        )
+        coordinator.collector.get_sector_rankings = AsyncMock(return_value=([], []))
+        coordinator.collector.get_global_news = AsyncMock(
+            return_value=[{"title": "算力政策更新", "content": "绿色算力", "source": "test", "time": "2026-06-15"}]
+        )
+
+        context = DirectionContext(date="2026-06-15")
+        with patch("src.data.sources.cninfo_source.CninfoSource.get_announcements", new=AsyncMock(return_value=[])):
+            await coordinator._ensure_report_context(context)
+
+        assert context.market_overview["indices"][0]["name"] == "上证指数"
+        assert context.market_overview["statistics"]["total_amount"] == 8200
+        assert "算力政策更新" in context.news_context
+
 

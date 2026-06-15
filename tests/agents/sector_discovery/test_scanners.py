@@ -69,3 +69,25 @@ async def test_market_heat_extracts_concepts(hot_scanner):
     assert "固态电池" in concepts or "AI算力" in concepts
 
 
+@pytest.mark.asyncio
+async def test_market_heat_records_fallback_data_date(hot_scanner):
+    async def fake_heatmap(date=""):
+        if date == "2026-06-15":
+            return []
+        if date == "2026-06-12":
+            return [
+                {"code": "002730", "name": "电光科技", "reason": "AI算力概念"},
+                {"code": "002335", "name": "科华数据", "reason": "AI算力概念"},
+                {"code": "603083", "name": "剑桥科技", "reason": "光模块+算力"},
+            ]
+        return []
+
+    hot_scanner.collector.fetch_market_heatmap = AsyncMock(side_effect=fake_heatmap)
+    hot_scanner.collector.fetch_order_flow_profile = AsyncMock(return_value=None)
+
+    result = await hot_scanner.scan(trade_date="2026-06-15")
+
+    assert result
+    assert {h.data_date for h in result} == {"2026-06-12"}
+
+

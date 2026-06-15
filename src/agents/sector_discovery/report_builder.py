@@ -39,10 +39,12 @@ class DirectionReportBuilder:
 输出要求：
 - 必须输出纯 Markdown 文本
 - 禁止输出 JSON
-- 必须生成 10 个方向分析
+- 只分析输入证据中出现的方向，最多 10 个；不要为了凑数编造方向
 - 不输出具体个股推荐、股票代码、股票名单
 - 每个方向必须写清"应该关注什么内容"
-- 预期差分析要具体：市场当前怎么看、实际可能是什么、差距有多大"""
+- 预期差分析要具体：市场当前怎么看、实际可能是什么、差距有多大
+- 严禁编造未在输入中出现的指数涨跌、成交额、涨跌停家数、北向资金、主力资金、政策或新闻；缺失时写"未获取"或"暂无数据"
+"""
 
     async def build(
         self,
@@ -159,14 +161,18 @@ class DirectionReportBuilder:
         parts.append("")
 
         # 6. Output format instructions
-        parts.append(self._build_output_template())
+        parts.append(self._build_output_template(len(snapshots)))
 
         return "\n".join(parts)
 
     def _build_market_overview_text(self, market_overview: dict | None) -> str:
         """Format market overview data for prompt."""
         if not market_overview:
-            return "## 市场概况\n暂无大盘数据。"
+            return (
+                "## 市场概况\n"
+                "暂无大盘数据。报告中不得编造指数涨跌、成交额、涨跌停家数、北向资金或主力资金数据；"
+                "相关字段必须写未获取。"
+            )
 
         lines = ["## 市场概况"]
 
@@ -270,6 +276,8 @@ class DirectionReportBuilder:
 
             # Raw metrics
             metrics = snap.raw_metrics or {}
+            if metrics.get("data_date"):
+                lines.append(f"- 市场热度数据日期: {metrics['data_date']}")
             if metrics.get("limit_up_count"):
                 lines.append(f"- 涨停家数: {int(metrics['limit_up_count'])}")
             if metrics.get("order_flow_profile"):
@@ -277,26 +285,27 @@ class DirectionReportBuilder:
 
         return "\n".join(lines)
 
-    def _build_output_template(self) -> str:
+    def _build_output_template(self, direction_count: int) -> str:
         """Return output format instructions for LLM."""
-        return """## 输出格式要求
+        count_text = f"{min(direction_count, 10)} 个" if direction_count else "0 个"
+        return f"""## 输出格式要求
 
 请按以下结构输出分析报告：
 
 ### 一、市场总览
-（2-3句话概括指数表现、涨跌结构、成交额和情绪温度。给出"强势/偏暖/震荡/偏弱"判断。）
+（2-3句话概括已有市场数据。只允许使用上文"市场概况"里的数字；缺失的指数表现、涨跌结构、成交额、北向资金、主力资金必须写"未获取"。）
 
 ### 二、热点政策与新闻
-（提炼最重要的政策、产业新闻、监管表态、海外事件。判断它们对 A 股方向的影响。）
+（只提炼上文"热点新闻、政策与公告上下文"或"政策信号"中出现的信息。没有输入证据时写"暂无可验证的新催化"，不得编造新闻。）
 
 ### 三、资金与情绪
-（解读成交额变化、涨跌停结构、市场宽度、主力资金流向、北向资金、游资活跃度。）
+（只解读扫描器证据和市场概况中出现的资金/涨停数据。没有数据时写"未获取"，不得估算。）
 
 ### 四、产业链拆解方法
 （说明如何从政策/新闻向上游材料设备、中游制造、下游应用、配套服务扩散。）
 
-### 五、10个方向分析
-必须输出 10 个方向，格式如下：
+### 五、方向分析
+必须只输出输入证据中的 {count_text}方向，最多 10 个，不要补充额外方向。格式如下：
 
 #### 1. 方向名称
 - **核心驱动**：来自哪类政策/新闻/财经信息/资金流向
@@ -311,6 +320,7 @@ class DirectionReportBuilder:
 - 不要推荐具体个股，不要输出股票代码或股票名单
 - 每个方向必须有独立链路，不能泛泛而谈
 - 预期差分析要具体，不能只说"有预期差"
+- 所有具体数字必须来自上文输入；没有输入依据时写"未获取"
 """
 
     # ── Fallback template methods (kept for resilience) ────────────────────
@@ -415,6 +425,8 @@ class DirectionReportBuilder:
     def _infer_fund_context(self, snap: SectorSnapshot) -> str:
         metrics = snap.raw_metrics or {}
         parts = []
+        if metrics.get("data_date"):
+            parts.append(f"市场热度数据日期 {metrics['data_date']}")
         if metrics.get("order_flow_profile"):
             parts.append(f"资金净流入 {metrics['order_flow_profile']/1e8:.1f} 亿")
         if metrics.get("limit_up_count"):

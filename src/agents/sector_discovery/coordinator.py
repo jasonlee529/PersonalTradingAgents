@@ -140,6 +140,7 @@ class Coordinator:
 
         # Phase 5: Build Report
         _notify("report", "running", "正在生成报告...")
+        await self._ensure_report_context(context)
         report = await self._phase5_build_report(context, selected)
         _notify("report", "success",
                 f"报告生成完成: {len(report.sectors)} 个方向",
@@ -439,6 +440,68 @@ class Coordinator:
 
         await asyncio.gather(*[_analyze_direction(d) for d in selected])
         logger.info("Phase 4 Deep Dive: analyzed %d directions", len(selected))
+
+    async def _ensure_report_context(self, context: DirectionContext) -> None:
+        """Populate market/news context before asking the LLM to write a report."""
+        if not context.market_overview:
+            context.market_overview = await self._fetch_market_overview()
+        if not context.news_context:
+            context.news_context = await self._fetch_news_context()
+
+    async def _fetch_market_overview(self) -> dict | None:
+        """Fetch indices, market stats, and sector rankings for report context."""
+        try:
+            indices, stats, rankings = await asyncio.gather(
+                self.collector.get_market_indices(),
+                self.collector.get_market_statistics(),
+                self.collector.get_sector_rankings(n=5),
+                return_exceptions=True,
+            )
+            result: dict = {}
+            if indices and not isinstance(indices, Exception):
+                result["indices"] = indices
+            if stats and not isinstance(stats, Exception):
+                result["statistics"] = stats
+            if rankings and not isinstance(rankings, Exception):
+                result["sector_rankings"] = {"top": rankings[0], "bottom": rankings[1]}
+            return result if result else None
+        except Exception as e:
+            logger.warning("Market overview fetch failed: %s", e)
+            return None
+
+    async def _fetch_news_context(self) -> str:
+        """Aggregate recent market news and announcements for report context."""
+        parts: list[str] = []
+        try:
+            global_news = await self.collector.get_global_news(look_back_days=3, limit=30)
+            if global_news:
+                parts.append("## 财经快讯")
+                for item in global_news[:15]:
+                    title = item.get("title", "")
+                    content = item.get("content", "")
+                    source = item.get("source", "")
+                    time_str = item.get("time", "")
+                    parts.append(f"- [{source}] {title} ({time_str})")
+                    if content:
+                        parts.append(f"  {content[:100]}")
+        except Exception as e:
+            logger.debug("News context global news failed: %s", e)
+
+        try:
+            from src.data.sources.cninfo_source import CninfoSource
+
+            cninfo = CninfoSource(self.settings)
+            announcements = await cninfo.get_announcements(limit=20)
+            if announcements:
+                parts.append("\n## 重要公告")
+                for item in announcements[:10]:
+                    title = item.get("title", "")
+                    stock = item.get("stock_name", "")
+                    parts.append(f"- [{stock}] {title}")
+        except Exception as e:
+            logger.debug("News context announcements failed: %s", e)
+
+        return "\n".join(parts)
 
     async def _phase5_build_report(
         self,

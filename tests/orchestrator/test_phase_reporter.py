@@ -1,5 +1,5 @@
 from src.orchestrator.phase_reporter import PhaseReporter
-from src.orchestrator.state import AnalysisJob, StepStatus
+from src.orchestrator.state import AnalysisJob, JobStatus, StepStatus
 
 
 def _step(job: AnalysisJob, step_id: str):
@@ -60,3 +60,16 @@ async def test_current_phase_moves_to_sentiment_even_if_market_waits_for_artifac
     assert market.status == StepStatus.RUNNING
     assert sentiment.status == StepStatus.RUNNING
     assert job.phase == "analyst_sentiment"
+
+
+async def test_on_error_marks_job_error_status():
+    job = AnalysisJob(id="phase-4", symbol="600519")
+    reporter = PhaseReporter(job)
+
+    await reporter.on_node_start("Market Analyst")
+    await reporter.on_error("Market Analyst", "boom")
+
+    market = _step(job, "analyst_market")
+    assert market.status == StepStatus.ERROR
+    assert market.detail == "boom"
+    assert job.status == JobStatus.ERROR

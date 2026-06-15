@@ -103,3 +103,59 @@ def test_category_without_stocks_omitted(builder):
     report = asyncio.run(builder.build([]))
     md = builder.to_enhanced_markdown(report)
     assert "#" in md
+
+
+def test_llm_prompt_uses_actual_direction_count(builder):
+    snap = SectorSnapshot(
+        board_code="",
+        name="AI算力",
+        tags=["热点追逐"],
+        composite_score=3.7,
+        raw_metrics={"limit_up_count": 3, "data_date": "2026-06-15"},
+    )
+
+    prompt = builder._build_llm_prompt(
+        snapshots=[snap],
+        date_str="2026-06-15",
+        market_overview=None,
+        news_context="",
+        policy_signals=None,
+        chain_signals=None,
+    )
+
+    assert "必须只输出输入证据中的 1 个方向" in prompt
+    assert "市场热度数据日期: 2026-06-15" in prompt
+    assert "不得编造指数涨跌、成交额、涨跌停家数、北向资金或主力资金数据" in prompt
+    assert "必须输出 10 个方向" not in prompt
+
+
+def test_llm_prompt_includes_market_overview_when_available(builder):
+    prompt = builder._build_llm_prompt(
+        snapshots=[
+            SectorSnapshot(
+                board_code="",
+                name="半导体",
+                tags=["热点追逐"],
+                composite_score=2.6,
+            )
+        ],
+        date_str="2026-06-15",
+        market_overview={
+            "indices": [{"name": "上证指数", "current": 3123.45, "change_pct": -0.12}],
+            "statistics": {
+                "up_count": 1200,
+                "down_count": 3800,
+                "flat_count": 80,
+                "limit_up_count": 52,
+                "limit_down_count": 8,
+                "total_amount": 8200,
+            },
+        },
+        news_context="",
+        policy_signals=None,
+        chain_signals=None,
+    )
+
+    assert "上证指数" in prompt
+    assert "两市成交额: 8200 亿元" in prompt
+    assert "只允许使用上文\"市场概况\"里的数字" in prompt

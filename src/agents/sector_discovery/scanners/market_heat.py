@@ -199,6 +199,7 @@ class MarketHeatScanner:
                     evidence="，".join(evidence_parts),
                     market_heatmap=data["stocks"],
                     order_flow_profile=order_flow_profile,
+                    data_date=trade_date,
                 )
             )
 

@@ -274,6 +274,7 @@ class HotSignal:
     evidence: str = ""  # e.g. "5股涨停，资金连续3日流入30亿"
     market_heatmap: list[str] = field(default_factory=list)  # limit-up stock codes
     order_flow_profile: float = 0.0  # total net fund flow (yuan)
+    data_date: str = ""  # actual market data date used by the scanner
 
 
 @dataclass
