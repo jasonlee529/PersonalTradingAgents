@@ -30,7 +30,7 @@ export const portfolioApi = {
   add: (data: { symbol: string; market?: string; quantity?: number; avg_cost?: number }) =>
     api.post('/portfolio/holdings', data),
   remove: (symbol: string) => api.delete(`/portfolio/holdings/${symbol}`),
-  updatePosition: (symbol: string, data: { quantity: number; avg_cost: number; current_price?: number | null; unrealized_pnl?: number | null; override_reason?: string }) =>
+  updatePosition: (symbol: string, data: { quantity: number; avg_cost: number; current_price?: number | null; override_reason?: string }) =>
     api.patch(`/portfolio/holdings/${encodeURIComponent(symbol)}/position`, data),
   refreshPrices: () => api.post('/portfolio/refresh-prices'),
   trades: (params?: { symbol?: string; limit?: number }) =>
@@ -111,6 +111,7 @@ export const analysisApi = {
 export interface RawSource {
   source_id: string
   source_kind: string
+  source_kind_label?: string
   origin: string
   title: string
   content_path: string

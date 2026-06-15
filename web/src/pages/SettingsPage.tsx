@@ -19,7 +19,6 @@ const tabs = [
   { key: 'llm', title: 'LLM 配置', icon: <IconRobot /> },
   { key: 'scheduler', title: '调度配置', icon: <IconClockCircle /> },
   { key: 'notification', title: '今日通知', icon: <IconNotification /> },
-  { key: 'trading', title: '交易费率', icon: <IconRobot /> },
   { key: 'knowledge', title: '知识库', icon: <IconRobot /> },
   { key: 'other', title: '其他设置', icon: <IconRobot /> },
 ]
@@ -446,24 +445,6 @@ export default function SettingsPage() {
                   </FormItem>
                 </SettingsFoldout>
               </div>
-            </div>
-
-            <div style={{ display: activeTab === 'trading' ? 'block' : 'none' }}>
-              <div style={{ marginBottom: 16, color: 'var(--text-secondary)', fontSize: 13 }}>
-                每日操作保存时会按这里的费率自动计算交易费用，并写入交易记录与 raw 日志。费率使用小数，例如 0.0005 表示万分之五。
-              </div>
-              <FormItem label="佣金率" field="trade_commission_rate">
-                <InputNumber className="settings-number-input" hideControl min={0} step={0.00001} precision={6} style={{ width: '100%' }} />
-              </FormItem>
-              <FormItem label="最低佣金" field="trade_min_commission">
-                <InputNumber className="settings-number-input" hideControl min={0} step={0.01} precision={2} style={{ width: '100%' }} />
-              </FormItem>
-              <FormItem label="印花税率（卖出侧）" field="trade_stamp_tax_rate">
-                <InputNumber className="settings-number-input" hideControl min={0} step={0.00001} precision={6} style={{ width: '100%' }} />
-              </FormItem>
-              <FormItem label="过户费率" field="trade_transfer_fee_rate">
-                <InputNumber className="settings-number-input" hideControl min={0} step={0.00001} precision={6} style={{ width: '100%' }} />
-              </FormItem>
             </div>
 
             <div style={{ display: activeTab === 'knowledge' ? 'block' : 'none' }}>

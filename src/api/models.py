@@ -161,7 +161,6 @@ class PositionUpdate(BaseModel):
     quantity: int
     avg_cost: float
     current_price: Optional[float] = None
-    unrealized_pnl: Optional[float] = None
     override_reason: str = ""
 
 

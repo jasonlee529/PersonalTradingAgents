@@ -118,19 +118,12 @@ async def update_position(
         quantity=body.quantity,
         avg_cost=Decimal(str(body.avg_cost)),
     )
-    # Preserve existing current_price and recalculate derived fields
-    if old_pos and old_pos.current_price is not None:
-        pos.current_price = old_pos.current_price
-        pos.update_price(pos.current_price)
-    elif body.current_price is not None:
-        pos.current_price = Decimal(str(body.current_price))
-        pos.update_price(pos.current_price)
-    # Allow overriding unrealized_pnl directly
-    if body.unrealized_pnl is not None:
-        pos.unrealized_pnl = Decimal(str(body.unrealized_pnl))
-        if pos.avg_cost and pos.quantity > 0:
-            cost = pos.avg_cost * pos.quantity
-            pos.unrealized_pnl_pct = (pos.unrealized_pnl / cost) * 100 if cost else Decimal("0")
+    # User edits only the final position inputs. PnL is always derived from
+    # quantity, average cost, and current price.
+    if body.current_price is not None:
+        pos.update_price(Decimal(str(body.current_price)))
+    elif old_pos and old_pos.current_price is not None:
+        pos.update_price(old_pos.current_price)
     await services.portfolio.upsert_position(
         pos,
         user_adjusted=True,
