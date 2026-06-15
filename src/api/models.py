@@ -343,6 +343,9 @@ class SettingsResponse(BaseModel):
     xueqiu_cookie: str = ""
     xueqiu_auto_cookie: bool = True
     xueqiu_timeout: float = 10.0
+    tushare_api_key: str = ""
+    fund_holdings_refresh_enabled: bool = False
+    fund_holdings_refresh_schedule: str = "0 2 * * 1-5"
 
 
 class AnalystInfo(BaseModel):
@@ -440,3 +443,6 @@ class SettingsUpdate(BaseModel):
     xueqiu_cookie: Optional[str] = None
     xueqiu_auto_cookie: Optional[bool] = None
     xueqiu_timeout: Optional[float] = None
+    tushare_api_key: Optional[str] = None
+    fund_holdings_refresh_enabled: Optional[bool] = None
+    fund_holdings_refresh_schedule: Optional[str] = None

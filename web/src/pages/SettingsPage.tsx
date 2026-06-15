@@ -489,6 +489,24 @@ export default function SettingsPage() {
                     <InputNumber className="settings-number-input" hideControl min={1} max={60} style={{ width: '100%' }} />
                   </FormItem>
                 </SettingsFoldout>
+
+                <SettingsFoldout
+                  title="Tushare"
+                  expanded={expandedOtherSetting === 'tushare'}
+                  onToggle={() => setExpandedOtherSetting((current) => (current === 'tushare' ? '' : 'tushare'))}
+                >
+                  <FormItem label="Tushare API Key" field="tushare_api_key">
+                    <Input.Password
+                      autoComplete="off"
+                      defaultVisibility={false}
+                      placeholder="请输入 Tushare API Key"
+                      visibilityToggle
+                    />
+                  </FormItem>
+                  <FormItem label="基金持仓刷新计划" field="fund_holdings_refresh_schedule">
+                    <Input placeholder="例如: 0 2 * * 1-5" />
+                  </FormItem>
+                </SettingsFoldout>
               </div>
             </div>
 

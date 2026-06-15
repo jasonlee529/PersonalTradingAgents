@@ -83,6 +83,9 @@ PERSISTED_SETTINGS_FIELDS: dict[str, str] = {
     "xueqiu_cookie": "XUEQIU_COOKIE",
     "xueqiu_auto_cookie": "XUEQIU_AUTO_COOKIE",
     "xueqiu_timeout": "XUEQIU_TIMEOUT",
+    "tushare_api_key": "TUSHARE_API_KEY",
+    "fund_holdings_refresh_enabled": "FUND_HOLDINGS_REFRESH_ENABLED",
+    "fund_holdings_refresh_schedule": "FUND_HOLDINGS_REFRESH_SCHEDULE",
 }
 
 
