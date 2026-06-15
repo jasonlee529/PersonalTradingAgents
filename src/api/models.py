@@ -195,6 +195,7 @@ class AnalysisRequest(BaseModel):
 class AnalysisJobListItem(BaseModel):
     job_id: str
     symbol: str
+    stock_name: str = ""
     status: str
     progress: str
     created_at: Optional[str] = None

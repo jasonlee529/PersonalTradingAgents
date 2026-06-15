@@ -308,6 +308,9 @@ class Settings(BaseSettings):
         "trading_seat_activity": ["eastmoney"],
         "supply_unlock_schedule": ["eastmoney"],
         "peer_industry_snapshot": ["eastmoney"],
+        "market_indices": ["eastmoney", "tencent", "sina"],
+        "market_statistics": ["eastmoney", "sina"],
+        "sector_rankings": ["eastmoney"],
         "announcements": ["ths", "cninfo"],
         "research_reports": ["eastmoney"],
     }

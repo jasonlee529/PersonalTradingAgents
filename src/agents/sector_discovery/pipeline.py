@@ -230,16 +230,22 @@ class SectorDiscoveryPipeline:
     async def _fetch_market_overview(self) -> dict | None:
         """Fetch indices, market stats, and sector rankings for report context."""
         try:
-            indices = await self.collector.get_market_indices()
-            stats = await self.collector.get_market_statistics()
-            rankings = await self.collector.get_sector_rankings(n=5)
+            indices, stats, rankings, northbound = await asyncio.gather(
+                self.collector.get_market_indices(),
+                self.collector.get_market_statistics(),
+                self.collector.get_sector_rankings(n=5),
+                self.collector.fetch_cross_border_flow(include_history=False),
+                return_exceptions=True,
+            )
             result: dict = {}
-            if indices:
+            if indices and not isinstance(indices, Exception):
                 result["indices"] = indices
-            if stats:
+            if stats and not isinstance(stats, Exception):
                 result["statistics"] = stats
-            if rankings:
+            if rankings and not isinstance(rankings, Exception):
                 result["sector_rankings"] = {"top": rankings[0], "bottom": rankings[1]}
+            if northbound and not isinstance(northbound, Exception):
+                result["northbound_flow"] = northbound
             return result if result else None
         except Exception as e:
             logger.warning("Market overview fetch failed: %s", e)

@@ -22,7 +22,10 @@ async def test_pipeline_runs_all_scanners(pipeline):
     """Pipeline should invoke all scanners and produce a report."""
     # Mock all external calls to avoid network
     pipeline.collector.get_global_news = AsyncMock(return_value=[])
+    pipeline.collector.get_market_indices = AsyncMock(return_value=[])
     pipeline.collector.get_market_statistics = AsyncMock(return_value={"up_count": 2000, "down_count": 2000})
+    pipeline.collector.get_sector_rankings = AsyncMock(return_value=([], []))
+    pipeline.collector.fetch_cross_border_flow = AsyncMock(return_value=None)
     pipeline.collector.fetch_market_heatmap = AsyncMock(return_value=[])
     pipeline.collector.list_industry_boards = AsyncMock(return_value=[])
     pipeline.collector.list_concept_boards = AsyncMock(return_value=[])

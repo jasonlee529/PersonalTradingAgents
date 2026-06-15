@@ -19,7 +19,7 @@ from src.knowledge.wiki_store import WikiStore
 
 logger = logging.getLogger(__name__)
 
-MAX_RUNNING_WIKI_INGEST_SOURCES = 5
+MAX_RUNNING_WIKI_INGEST_SOURCES = 10
 
 
 def _now_iso() -> str:
@@ -45,6 +45,7 @@ class WikiIngestQueueItem:
     kind: str
     run_id: str
     source_id: str = ""
+    source_ids: tuple[str, ...] = ()
     raw_run_id: str = ""
     force: bool = False
 
@@ -233,17 +234,109 @@ class WikiIngestQueue:
             return self._queued_response(run_id, [s["source_id"] for s in sources])
 
     async def enqueue_batch(self, source_ids: list[str]) -> dict[str, Any]:
-        results = []
-        for source_id in source_ids[: self.settings.wiki_ingest_batch_size]:
-            try:
-                result = await self.enqueue_source(source_id)
-                results.append({"source_id": source_id, **result})
-            except RuntimeError as exc:
-                results.append({"source_id": source_id, "status": "rejected", "error": str(exc)})
-                break
-            except FileNotFoundError:
-                results.append({"source_id": source_id, "status": "failed", "error": "Source not found"})
-        return {"batch_status": "queued", "results": results}
+        lock = self._get_enqueue_lock()
+        async with lock:
+            requested_ids = list(dict.fromkeys(source_ids))[: self.settings.wiki_ingest_batch_size]
+            if not requested_ids:
+                raise ValueError("source_ids cannot be empty")
+
+            sources: list[dict[str, Any]] = []
+            source_errors: list[dict[str, Any]] = []
+            states: dict[str, dict | None] = {}
+            for source_id in requested_ids:
+                try:
+                    source = await self.raw_store.read_source(source_id)
+                except FileNotFoundError:
+                    source_errors.append({
+                        "source_id": source_id,
+                        "status": "failed",
+                        "error": "Source not found",
+                    })
+                    continue
+                sources.append(source)
+                states[source_id] = await self.wiki_store.get_source_state(source_id)
+
+            if not sources:
+                return {"batch_status": "failed", "results": source_errors}
+
+            running_states = [
+                state for state in states.values()
+                if self._is_running_state(state)
+            ]
+            if running_states:
+                return {
+                    "batch_status": "running",
+                    "results": [
+                        {"source_id": sid, **self._running_response(states.get(sid), requested_ids)}
+                        for sid in requested_ids
+                        if states.get(sid) and self._is_running_state(states.get(sid))
+                    ] + source_errors,
+                }
+
+            ingest_sources = [
+                source for source in sources
+                if not (
+                    states.get(source["source_id"])
+                    and states[source["source_id"]].get("wiki_status") == "processed"
+                )
+            ]
+            skipped = [
+                {
+                    "source_id": source["source_id"],
+                    "status": "skipped",
+                    "run_id": states[source["source_id"]].get("latest_ingest_run_id", ""),
+                    "source_ids": [source["source_id"]],
+                    "pages_touched": states[source["source_id"]].get("page_ids", []),
+                    "claims_touched": [],
+                    "warnings": ["Source already processed"],
+                }
+                for source in sources
+                if (
+                    states.get(source["source_id"])
+                    and states[source["source_id"]].get("wiki_status") == "processed"
+                )
+            ]
+
+            if not ingest_sources:
+                return {"batch_status": "skipped", "results": skipped + source_errors}
+
+            running_count = await self._count_running_sources()
+            if running_count + len(ingest_sources) > self.max_running_sources:
+                raise RuntimeError(f"Wiki ingest running limit reached: {self.max_running_sources}")
+
+            batch_source_ids = [source["source_id"] for source in ingest_sources]
+            run_id = _new_run_id("|".join(batch_source_ids))
+            await self._create_run(
+                run_id=run_id,
+                trigger_type="batch",
+                source_id="",
+                raw_run_id="",
+                source_kind="batch",
+                status="queued",
+            )
+            for source in ingest_sources:
+                state = states.get(source["source_id"])
+                await self.wiki_store.upsert_source_state(
+                    source_id=source["source_id"],
+                    source_kind=source.get("source_kind", ""),
+                    raw_content_sha256=source.get("content_sha256", ""),
+                    wiki_status="queued",
+                    latest_ingest_run_id=run_id,
+                    page_ids=state.get("page_ids", []) if state else [],
+                    error="",
+                )
+            self._items.put(
+                WikiIngestQueueItem(
+                    kind="batch",
+                    run_id=run_id,
+                    source_ids=tuple(batch_source_ids),
+                )
+            )
+            queued = [
+                {"source_id": sid, **self._queued_response(run_id, batch_source_ids)}
+                for sid in batch_source_ids
+            ]
+            return {"batch_status": "queued", "run_id": run_id, "results": queued + skipped + source_errors}
 
     def _get_enqueue_lock(self) -> asyncio.Lock:
         loop = asyncio.get_running_loop()
@@ -315,8 +408,12 @@ class WikiIngestQueue:
                 break
             try:
                 asyncio.run(self._run_item(item))
-            except Exception:
+            except Exception as exc:
                 logger.exception("Wiki ingest queue item failed: %s", item)
+                try:
+                    asyncio.run(self._mark_item_failed(item, str(exc)))
+                except Exception:
+                    logger.exception("Failed to mark wiki ingest queue item as failed: %s", item)
             finally:
                 self._items.task_done()
 
@@ -334,7 +431,46 @@ class WikiIngestQueue:
                 ingest_run_id=item.run_id,
             )
             return
+        if item.kind == "batch":
+            await ingestor.ingest_batch(
+                list(item.source_ids),
+                run_id=item.run_id,
+            )
+            return
         raise ValueError(f"Unsupported wiki ingest queue item kind: {item.kind}")
+
+    async def _mark_item_failed(self, item: WikiIngestQueueItem, error: str) -> None:
+        now = _now_iso()
+        source_ids = await self._source_ids_for_item(item)
+        async with aiosqlite.connect(self.wiki_store.db_path) as db:
+            await db.execute(
+                """UPDATE wiki_ingest_runs
+                   SET status = ?, error = ?, completed_at = ?
+                   WHERE run_id = ?""",
+                ("failed", error, now, item.run_id),
+            )
+            for source_id in source_ids:
+                await db.execute(
+                    """UPDATE wiki_source_state
+                       SET wiki_status = ?, error = ?, updated_at = ?
+                       WHERE source_id = ? AND latest_ingest_run_id = ?""",
+                    ("failed", error, now, source_id, item.run_id),
+                )
+            await db.commit()
+
+    async def _source_ids_for_item(self, item: WikiIngestQueueItem) -> list[str]:
+        if item.source_ids:
+            return list(item.source_ids)
+        if item.source_id:
+            return [item.source_id]
+        if item.kind == "analysis_run" and item.raw_run_id:
+            sources = await self.raw_store.list_sources(source_kind="stock_analysis", limit=200)
+            return [
+                source["source_id"]
+                for source in sources
+                if source.get("metadata", {}).get("run_id") == item.raw_run_id
+            ]
+        return []
 
     def _settings_for_item(self) -> Settings:
         """Refresh user-editable LLM settings while preserving service paths."""

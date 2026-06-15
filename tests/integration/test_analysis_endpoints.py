@@ -51,6 +51,20 @@ class TestAnalysisEndpoints:
         assert isinstance(data, list)
         assert len(data) >= 1
 
+    def test_list_analysis_jobs_includes_stock_name(self, api_client):
+        api_client.post("/api/portfolio/holdings", json={
+            "symbol": "TEST003",
+            "name": "Test Stock",
+            "market": "CN",
+        })
+        api_client.post("/api/analysis/", json={"symbol": "TEST003"})
+
+        resp = api_client.get("/api/analysis/jobs?limit=10")
+        assert resp.status_code == 200
+        jobs = resp.json()
+        job = next(item for item in jobs if item["symbol"] == "TEST003")
+        assert job["stock_name"] == "Test Stock"
+
     def test_feedback_submit_and_retrieve(self, api_client):
         # Create a job
         resp = api_client.post("/api/analysis/", json={"symbol": "600519"})

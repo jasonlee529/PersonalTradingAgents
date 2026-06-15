@@ -91,3 +91,23 @@ async def test_market_heat_records_fallback_data_date(hot_scanner):
     assert {h.data_date for h in result} == {"2026-06-12"}
 
 
+@pytest.mark.asyncio
+async def test_market_heat_ignores_event_only_rows(hot_scanner):
+    hot_scanner.collector.fetch_market_heatmap = AsyncMock(return_value=[
+        {
+            "code": "002730",
+            "name": "电光科技",
+            "reason": "AI算力",
+            "change_pct": None,
+            "turnover": None,
+            "amount": None,
+            "dde_net": None,
+        },
+    ])
+    hot_scanner.collector.fetch_order_flow_profile = AsyncMock(return_value=None)
+
+    result = await hot_scanner.scan(trade_date="2026-06-15")
+
+    assert result == []
+
+

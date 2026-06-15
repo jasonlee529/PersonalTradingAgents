@@ -146,6 +146,8 @@ class MarketHeatScanner:
                     code = item.get("code", "")
                     name = item.get("name", "")
                     reason = item.get("reason", "")
+                    if not self._is_usable_heatmap_item(item):
+                        continue
                     concept = self._extract_concept(reason, name)
 
                     if concept not in concept_map:
@@ -228,5 +230,15 @@ class MarketHeatScanner:
                 return match.group(1).strip()
 
         return "其他"
+
+    @staticmethod
+    def _is_usable_heatmap_item(item: dict) -> bool:
+        """Avoid counting event-only rows as limit-up evidence."""
+        if not item.get("code") or not item.get("reason"):
+            return False
+        market_fields = ("change_pct", "turnover", "amount", "dde_net")
+        if any(key in item for key in market_fields):
+            return any(item.get(key) is not None for key in market_fields)
+        return True
 
 

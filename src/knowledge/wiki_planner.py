@@ -400,6 +400,50 @@ class DeterministicWikiPlanner:
             warnings=[],
         )
 
+    async def plan_batch_ingest(
+        self,
+        *,
+        sources: list[dict],
+        related_pages: list[dict],
+        schema_text: str,
+    ) -> WikiUpdatePlan:
+        plans: list[WikiUpdatePlan] = []
+        for source in sources:
+            plans.append(await self.plan_source_ingest(
+                source=source,
+                related_pages=related_pages,
+                schema_text=schema_text,
+            ))
+
+        source_ids: list[str] = []
+        pages_by_id: dict[str, WikiPageUpsert] = {}
+        page_patches: list[WikiPagePatch] = []
+        claims: list[WikiClaim] = []
+        warnings: list[str] = []
+        log_entries: list[str] = []
+
+        for plan in plans:
+            source_ids.extend(plan.source_ids)
+            for page in plan.pages_to_create:
+                pages_by_id.setdefault(page.page_id, page)
+            page_patches.extend(plan.page_patches)
+            claims.extend(plan.claims)
+            warnings.extend(plan.warnings)
+            if plan.log_entry:
+                log_entries.append(plan.log_entry)
+
+        return WikiUpdatePlan(
+            source_ids=list(dict.fromkeys(source_ids)),
+            title=f"Batch ingest {len(source_ids)} sources",
+            summary=f"Deterministic batch plan for {len(source_ids)} raw sources",
+            pages_to_create=list(pages_by_id.values()),
+            page_patches=page_patches,
+            claims=claims,
+            contradictions=[],
+            log_entry="\n\n".join(log_entries),
+            warnings=warnings,
+        )
+
 
 # ---------------------------------------------------------------------------
 # LLM-driven planner
@@ -525,6 +569,22 @@ class LLMWikiPlanner:
         recent_log: str = "",
     ) -> WikiUpdatePlan:
         prompt = self._build_analysis_run_prompt(sources, related_pages, schema_text, recent_log)
+        valid_source_ids = {s.get("source_id", "") for s in sources}
+        source_kind_by_id = {
+            s.get("source_id", ""): s.get("source_kind", "")
+            for s in sources
+        }
+        return await self._call_llm(prompt, valid_source_ids, source_kind_by_id)
+
+    async def plan_batch_ingest(
+        self,
+        *,
+        sources: list[dict],
+        related_pages: list[dict],
+        schema_text: str,
+        recent_log: str = "",
+    ) -> WikiUpdatePlan:
+        prompt = self._build_batch_prompt(sources, related_pages, schema_text, recent_log)
         valid_source_ids = {s.get("source_id", "") for s in sources}
         source_kind_by_id = {
             s.get("source_id", ""): s.get("source_kind", "")
@@ -871,12 +931,68 @@ Do NOT include any text outside the JSON. Ensure all source_ids in the output ex
 """
         return prompt
 
+    def _build_batch_prompt(
+        self,
+        sources: list[dict],
+        related_pages: list[dict],
+        schema_text: str,
+        recent_log: str,
+    ) -> str:
+        sources_text = "\n\n".join(
+            self._format_single_source(s) for s in sources
+        )
+        related_text = self._format_related_pages(related_pages)
+        log_text = recent_log if recent_log else "(No recent log entries provided)"
+
+        prompt = f"""You are a wiki maintainer assistant. Based on the provided batch of raw sources and related wiki pages, generate ONE WikiUpdatePlan in strict JSON format.
+
+## Wiki Maintainer Schema
+
+{schema_text}
+
+## Raw Source Batch
+
+Sources ({len(sources)}):
+
+{sources_text}
+
+## Related Wiki Pages
+
+{related_text}
+
+## Recent Log Summary
+
+{log_text}
+
+{_HARD_CONSTRAINTS}
+
+{_PAGE_ID_RULES}
+
+## Batch Rules
+
+1. Return one consolidated plan for all provided raw sources.
+2. Do not create duplicate pages with the same page_id.
+3. Prefer one patch per target section that summarizes the whole batch when multiple sources touch the same page.
+4. Include every input source_id in source_ids unless the source has no usable content; explain skipped sources in warnings.
+
+## Output Format
+
+Return ONLY valid JSON matching this WikiUpdatePlan schema:
+
+{_WIKI_UPDATE_PLAN_SCHEMA_TEXT}
+
+Do NOT include any text outside the JSON. Ensure all source_ids in the output exist in the input raw sources.
+"""
+        return prompt
+
     @staticmethod
     def _format_single_source(source: dict) -> str:
         lines = [
             f"- source_id: `{source.get('source_id', '')}`",
             f"  source_kind: `{source.get('source_kind', '')}`",
             f"  title: {source.get('title', '')}",
+            f"  symbol: `{source.get('symbol', '')}`",
+            f"  trade_date: `{source.get('trade_date', '')}`",
         ]
         md = source.get("markdown", "")
         if md:

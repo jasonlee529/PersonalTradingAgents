@@ -159,3 +159,29 @@ def test_llm_prompt_includes_market_overview_when_available(builder):
     assert "上证指数" in prompt
     assert "两市成交额: 8200 亿元" in prompt
     assert "只允许使用上文\"市场概况\"里的数字" in prompt
+
+
+def test_llm_prompt_includes_northbound_flow(builder):
+    prompt = builder._build_llm_prompt(
+        snapshots=[
+            SectorSnapshot(
+                board_code="",
+                name="AI",
+                tags=["hot"],
+                composite_score=2.6,
+            )
+        ],
+        date_str="2026-06-15",
+        market_overview={
+            "northbound_flow": {
+                "close": {"hgt": 12.3, "sgt": -2.1, "total": 10.2}
+            },
+        },
+        news_context="",
+        policy_signals=None,
+        chain_signals=None,
+    )
+
+    assert "北向资金" in prompt
+    assert "沪深股通合计净流入: 10.20 亿元" in prompt
+    assert "沪股通: 12.30 亿元 | 深股通: -2.10 亿元" in prompt

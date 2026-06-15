@@ -108,10 +108,13 @@ async def list_jobs(
         limit=limit,
         summary_only=True,
     )
+    holdings = await services.portfolio.list_holdings()
+    stock_names = {h.symbol: h.name for h in holdings}
     return [
         AnalysisJobListItem(
             job_id=j.id,
             symbol=j.symbol,
+            stock_name=stock_names.get(j.symbol, ""),
             status=_normalize_status(j.status.value),
             progress=j.progress,
             created_at=j.created_at.isoformat() if j.created_at else None,

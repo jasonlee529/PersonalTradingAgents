@@ -100,6 +100,17 @@ def _make_discovery_status(job_id: str) -> DiscoverStatusResponse:
     )
 
 
+def _is_valid_direction_analysis(analysis_data: dict) -> bool:
+    if not analysis_data:
+        return True
+    market_overview = analysis_data.get("market_overview") or {}
+    stats = market_overview.get("statistics") or {}
+    if not stats:
+        return False
+    breadth = sum(int(stats.get(k) or 0) for k in ("up_count", "down_count", "flat_count"))
+    return breadth >= 1000
+
+
 @router.get("/today")
 async def get_today_directions(
     date: Optional[str] = None,
@@ -112,12 +123,13 @@ async def get_today_directions(
         date: Optional date string (YYYY-MM-DD). Defaults to latest.
         limit: Max number of reports to return.
     """
-    logger.info("API GET /sectors/today date=%s limit=%d", date or "latest", limit)
+    requested_date = date or normalize_trade_date(datetime.now().strftime("%Y-%m-%d"))
+    logger.info("API GET /sectors/today date=%s limit=%d", requested_date, limit)
     try:
         results = []
         entries = await services.raw_store.list_sources(
             source_kind="daily_direction",
-            trade_date=date or None,
+            trade_date=requested_date,
             limit=limit,
         )
         for entry in entries:
@@ -129,6 +141,12 @@ async def get_today_directions(
             stable_id = int(hashlib.sha256(entry["source_id"].encode("utf-8")).hexdigest()[:8], 16)
             meta = entry.get("metadata") or {}
             analysis_data = meta.get("analysis_data") or {}
+            if not _is_valid_direction_analysis(analysis_data):
+                logger.warning(
+                    "Skipping invalid daily direction report %s due to bad market statistics",
+                    entry["source_id"],
+                )
+                continue
             results.append({
                 "id": stable_id,
                 "source_id": entry["source_id"],
@@ -146,7 +164,7 @@ async def get_today_directions(
             })
 
         logger.info("API GET /sectors/today returned %d reports", len(results))
-        return {"date": date or "latest", "reports": results}
+        return {"date": requested_date, "reports": results}
     except Exception as e:
         logger.error("Failed to get today directions: %s", e)
         raise HTTPException(status_code=500, detail=str(e))

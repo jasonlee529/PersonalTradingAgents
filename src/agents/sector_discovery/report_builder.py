@@ -200,6 +200,21 @@ class DirectionReportBuilder:
             )
             lines.append(f"- 两市成交额: {stats.get('total_amount', 0):.0f} 亿元")
 
+        # Northbound flow
+        northbound = market_overview.get("northbound_flow", {})
+        close = northbound.get("close", {}) if isinstance(northbound, dict) else {}
+        if close:
+            hgt = close.get("hgt")
+            sgt = close.get("sgt")
+            total = close.get("total")
+            lines.append("### 北向资金")
+            if total is not None:
+                lines.append(f"- 沪深股通合计净流入: {float(total):.2f} 亿元")
+            if hgt is not None or sgt is not None:
+                hgt_text = f"{float(hgt):.2f}" if hgt is not None else "未获取"
+                sgt_text = f"{float(sgt):.2f}" if sgt is not None else "未获取"
+                lines.append(f"- 沪股通: {hgt_text} 亿元 | 深股通: {sgt_text} 亿元")
+
         # Sector rankings
         rankings = market_overview.get("sector_rankings", {})
         top = rankings.get("top", [])

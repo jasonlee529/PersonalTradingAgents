@@ -78,7 +78,10 @@ class DataCollector:
         key = self._cache_key(data_type, symbol, **kwargs)
         cached = await self.cache.get(key)
         if cached:
-            return cached
+            if self._is_valid_data_result(data_type, cached):
+                return cached
+            logger.info("Ignoring invalid cached %s result for key=%s", data_type, key)
+            await self.cache.delete(key)
 
         priority = self._domestic_priority(data_type, self._priority.get(data_type, []))
         if not priority:
@@ -91,6 +94,12 @@ class DataCollector:
             elif data_type == "announcements":
                 priority = ["ths", "cninfo"]
             elif data_type == "research_reports":
+                priority = ["eastmoney"]
+            elif data_type == "market_indices":
+                priority = ["eastmoney", "tencent", "sina"]
+            elif data_type == "market_statistics":
+                priority = ["eastmoney", "sina"]
+            elif data_type == "sector_rankings":
                 priority = ["eastmoney"]
             else:
                 priority = []
@@ -107,6 +116,13 @@ class DataCollector:
                 else:
                     result = await method(**kwargs)
                 if result is not None:
+                    if not self._is_valid_data_result(data_type, result):
+                        logger.info(
+                            "%s.%s via %s returned invalid data, trying next source",
+                            data_type, method_name, source_name,
+                        )
+                        result = None
+                        continue
                     logger.debug("%s.%s succeeded via %s", data_type, method_name, source_name)
                     break
             except Exception as e:
@@ -126,6 +142,31 @@ class DataCollector:
             ttl = ttl_map.get(data_type, 3600)
             await self.cache.set(key, result, ttl=ttl)
         return result
+
+    @staticmethod
+    def _is_valid_data_result(data_type: str, result) -> bool:
+        if data_type == "market_statistics":
+            if not isinstance(result, dict):
+                return False
+            breadth = sum(int(result.get(k) or 0) for k in ("up_count", "down_count", "flat_count"))
+            return breadth >= 1000
+
+        if data_type == "market_heatmap":
+            if not isinstance(result, list):
+                return False
+            if not result:
+                return True
+            valid_rows = 0
+            for item in result:
+                if not isinstance(item, dict):
+                    continue
+                if not item.get("code") or not item.get("reason"):
+                    continue
+                if any(item.get(k) is not None for k in ("change_pct", "turnover", "amount", "dde_net")):
+                    valid_rows += 1
+            return valid_rows > 0 and valid_rows / max(len(result), 1) >= 0.8
+
+        return True
 
     async def _fetch_and_merge(
         self, data_type: str, method_name: str, symbol: str = "", merge_fn=None, **kwargs

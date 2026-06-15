@@ -4,7 +4,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 
 from src.api.main import create_app
+from src.api.routers.sectors import _is_valid_direction_analysis
 from src.config import Settings
+from src.utils.trading_dates import normalize_trade_date
 
 
 @pytest.fixture
@@ -28,7 +30,7 @@ def test_get_today_directions_empty(client):
     response = client.get("/api/sectors/today")
     assert response.status_code == 200
     data = response.json()
-    assert data["date"] == "latest"
+    assert data["date"] == normalize_trade_date()
     assert data["reports"] == []
 
 
@@ -37,6 +39,29 @@ def test_get_today_directions_with_date(client):
     assert response.status_code == 200
     data = response.json()
     assert data["date"] == "2026-05-30"
+
+
+def test_invalid_direction_analysis_rejects_one_page_market_stats():
+    assert not _is_valid_direction_analysis({
+        "market_overview": {
+            "statistics": {
+                "up_count": 77,
+                "down_count": 22,
+                "flat_count": 1,
+                "limit_up_count": 1,
+                "total_amount": 72.25,
+            }
+        }
+    })
+
+
+def test_invalid_direction_analysis_rejects_missing_market_stats():
+    assert not _is_valid_direction_analysis({
+        "market_overview": {},
+        "candidate_directions": [
+            {"name": "AI算力", "raw_metrics": {"limit_up_count": 16}},
+        ],
+    })
 
 
 # ── POST /api/sectors/discover ────────────────────────────────────────────

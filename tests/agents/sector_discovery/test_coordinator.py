@@ -178,6 +178,9 @@ class TestCoordinator:
             return_value={"limit_up_count": 52, "limit_down_count": 8, "total_amount": 8200}
         )
         coordinator.collector.get_sector_rankings = AsyncMock(return_value=([], []))
+        coordinator.collector.fetch_cross_border_flow = AsyncMock(
+            return_value={"close": {"hgt": 12.3, "sgt": -2.1, "total": 10.2}}
+        )
         coordinator.collector.get_global_news = AsyncMock(
             return_value=[{"title": "算力政策更新", "content": "绿色算力", "source": "test", "time": "2026-06-15"}]
         )
@@ -188,6 +191,7 @@ class TestCoordinator:
 
         assert context.market_overview["indices"][0]["name"] == "上证指数"
         assert context.market_overview["statistics"]["total_amount"] == 8200
+        assert context.market_overview["northbound_flow"]["close"]["total"] == 10.2
         assert "算力政策更新" in context.news_context
 
 
