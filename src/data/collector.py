@@ -30,6 +30,7 @@ DOMESTIC_SOURCE_NAMES = {
     "sina",
     "eastmoney",
     "ths",
+    "tdx",
     "baidu",
     "cls",
     "cninfo",
@@ -50,6 +51,7 @@ class DataCollector:
             "sina": SinaSource(),
             "eastmoney": EastmoneySource(),
             "ths": THSSource(),
+            "tdx": TdxSource(),
             "baidu": BaiduSource(),
             "cls": CLSSource(),
             "cninfo": CninfoSource(),
@@ -93,7 +95,7 @@ class DataCollector:
             elif data_type == "research_reports":
                 priority = ["eastmoney"]
             elif data_type == "limit_up_stocks":
-                priority = ["eastmoney"]
+                priority = ["tdx", "eastmoney"]
             else:
                 priority = []
 
