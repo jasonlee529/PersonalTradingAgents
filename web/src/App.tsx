@@ -1,6 +1,7 @@
-import { lazy, Suspense } from 'react'
-import { Routes, Route, Navigate } from 'react-router-dom'
+import { lazy, Suspense, type ReactNode } from 'react'
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import Layout from './components/Layout'
+import { useAuthStore } from './store/useAuthStore'
 
 const HomePage = lazy(() => import('./pages/HomePage'))
 const PortfolioPage = lazy(() => import('./pages/PortfolioPage'))
@@ -20,37 +21,65 @@ const WikiPageDetailPage = lazy(() => import('./pages/WikiPageDetailPage'))
 const WikiIngestPage = lazy(() => import('./pages/WikiIngestPage'))
 const WikiLintPage = lazy(() => import('./pages/WikiLintPage'))
 const WikiClaimsPage = lazy(() => import('./pages/WikiClaimsPage'))
+const LoginPage = lazy(() => import('./pages/LoginPage'))
 
 function PageFallback() {
   return <div className="empty-state">加载中...</div>
 }
 
-export default function App() {
+function RequireAuth({ children }: { children: ReactNode }) {
+  const location = useLocation()
+  const isAuthenticated = useAuthStore((state) => state.isAuthenticated)
+
+  if (!isAuthenticated) {
+    return <Navigate to="/login" replace state={{ from: location }} />
+  }
+
+  return children
+}
+
+function AppRoutes() {
   return (
     <Layout>
-      <Suspense fallback={<PageFallback />}>
-        <Routes>
-          <Route path="/" element={<HomePage />} />
-          <Route path="/portfolio" element={<PortfolioPage />} />
-          <Route path="/stock" element={<StockDetailPage />} />
-          <Route path="/analysis" element={<AnalysisPage />} />
-          <Route path="/analysis/:jobId" element={<AnalysisDetailPage />} />
-          <Route path="/sectors" element={<SectorsPage />} />
-          <Route path="/knowledge/raw" element={<RawSourcesPage />} />
-          <Route path="/knowledge/manual" element={<ManualMaterialsPage />} />
-          <Route path="/knowledge/raw/new" element={<ManualSourceNewPage />} />
-          <Route path="/knowledge/raw/:sourceId/edit" element={<RawSourceEditPage />} />
-          <Route path="/knowledge/raw/:sourceId" element={<RawSourceDetailPage />} />
-          <Route path="/trades/daily" element={<DailyTradeLogPage />} />
-          <Route path="/wiki" element={<WikiHomePage />} />
-          <Route path="/wiki/ingest" element={<WikiIngestPage />} />
-          <Route path="/wiki/lint" element={<WikiLintPage />} />
-          <Route path="/wiki/claims" element={<WikiClaimsPage />} />
-          <Route path="/wiki/pages/:pageId" element={<WikiPageDetailPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
-      </Suspense>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/portfolio" element={<PortfolioPage />} />
+        <Route path="/stock" element={<StockDetailPage />} />
+        <Route path="/analysis" element={<AnalysisPage />} />
+        <Route path="/analysis/:jobId" element={<AnalysisDetailPage />} />
+        <Route path="/sectors" element={<SectorsPage />} />
+        <Route path="/knowledge/raw" element={<RawSourcesPage />} />
+        <Route path="/knowledge/manual" element={<ManualMaterialsPage />} />
+        <Route path="/knowledge/raw/new" element={<ManualSourceNewPage />} />
+        <Route path="/knowledge/raw/:sourceId/edit" element={<RawSourceEditPage />} />
+        <Route path="/knowledge/raw/:sourceId" element={<RawSourceDetailPage />} />
+        <Route path="/trades/daily" element={<DailyTradeLogPage />} />
+        <Route path="/wiki" element={<WikiHomePage />} />
+        <Route path="/wiki/ingest" element={<WikiIngestPage />} />
+        <Route path="/wiki/lint" element={<WikiLintPage />} />
+        <Route path="/wiki/claims" element={<WikiClaimsPage />} />
+        <Route path="/wiki/pages/:pageId" element={<WikiPageDetailPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
     </Layout>
+  )
+}
+
+export default function App() {
+  return (
+    <Suspense fallback={<PageFallback />}>
+      <Routes>
+        <Route path="/login" element={<LoginPage />} />
+        <Route
+          path="/*"
+          element={(
+            <RequireAuth>
+              <AppRoutes />
+            </RequireAuth>
+          )}
+        />
+      </Routes>
+    </Suspense>
   )
 }

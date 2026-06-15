@@ -15,6 +15,30 @@ export no_proxy="127.0.0.1,localhost"
 LOG_DIR="$SCRIPT_DIR/data/logs"
 mkdir -p "$LOG_DIR"
 STARTUP_LOG="$LOG_DIR/startup.log"
+BACKEND_PID_FILE="$LOG_DIR/backend.pid"
+FRONTEND_PID_FILE="$LOG_DIR/frontend.pid"
+BACKGROUND=0
+STOP_ONLY=0
+
+for arg in "$@"; do
+  case "$arg" in
+    --background|-d|--daemon)
+      BACKGROUND=1
+      ;;
+    --stop|stop)
+      STOP_ONLY=1
+      ;;
+    --help|-h)
+      printf 'Usage: %s [--background|-d|--daemon] [--stop|stop]\n' "$0"
+      exit 0
+      ;;
+    *)
+      printf '未知参数: %s\n' "$arg" >&2
+      printf 'Usage: %s [--background|-d|--daemon] [--stop|stop]\n' "$0" >&2
+      exit 2
+      ;;
+  esac
+done
 
 log() {
   local level="${2:-INFO}"
@@ -50,6 +74,30 @@ stop_port() {
     kill $pids 2>/dev/null || true
     sleep 1
   fi
+}
+
+stop_pid_file() {
+  local pid_file="$1"
+  local name="$2"
+  local pid=""
+
+  if [ ! -f "$pid_file" ]; then
+    return 0
+  fi
+
+  pid="$(tr -d '[:space:]' < "$pid_file" || true)"
+  rm -f "$pid_file"
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    log "停止 $name (PID $pid)..."
+    kill "$pid" 2>/dev/null || true
+  fi
+}
+
+stop_services() {
+  stop_pid_file "$BACKEND_PID_FILE" "后端"
+  stop_pid_file "$FRONTEND_PID_FILE" "前端"
+  stop_port 8000
+  stop_port 5173
 }
 
 wait_for_url() {
@@ -97,6 +145,10 @@ wait_for_frontend() {
 }
 
 cleanup() {
+  if [ "$BACKGROUND" = "1" ]; then
+    return 0
+  fi
+
   log "正在停止服务..."
   if [ -n "${BACKEND_PID:-}" ]; then
     kill "$BACKEND_PID" 2>/dev/null || true
@@ -106,13 +158,19 @@ cleanup() {
   fi
   wait "${BACKEND_PID:-}" 2>/dev/null || true
   wait "${FRONTEND_PID:-}" 2>/dev/null || true
+  rm -f "$BACKEND_PID_FILE" "$FRONTEND_PID_FILE"
   log "已停止"
 }
 
 trap cleanup EXIT INT TERM
 
-stop_port 8000
-stop_port 5173
+if [ "$STOP_ONLY" = "1" ]; then
+  stop_services
+  log "已停止"
+  exit 0
+fi
+
+stop_services
 
 log "========================================"
 log "   个人AI投研助手  开发环境启动器"
@@ -149,6 +207,7 @@ fi
 log "[后端] 启动 FastAPI ..."
 "$PYTHON_BIN" "$SCRIPT_DIR/main.py" > "$LOG_DIR/backend.out.log" 2> "$LOG_DIR/backend.err.log" &
 BACKEND_PID=$!
+printf '%s\n' "$BACKEND_PID" > "$BACKEND_PID_FILE"
 
 sleep 2
 
@@ -158,6 +217,7 @@ log "[前端] 启动 React ..."
   node "node_modules/vite/bin/vite.js" --host 0.0.0.0 --strictPort
 ) > "$LOG_DIR/frontend.log" 2> "$LOG_DIR/frontend.err.log" &
 FRONTEND_PID=$!
+printf '%s\n' "$FRONTEND_PID" > "$FRONTEND_PID_FILE"
 
 log "等待服务启动 ..."
 
@@ -179,6 +239,13 @@ else
     printf '%s\n' "--- frontend.err.log (last 20 lines) ---"
     tail -n 20 "$LOG_DIR/frontend.err.log"
   fi
+fi
+
+if [ "$BACKGROUND" = "1" ]; then
+  trap - EXIT INT TERM
+  log "后台运行中。停止服务: sh $SCRIPT_DIR/start.sh --stop"
+  log "日志目录: $LOG_DIR"
+  exit 0
 fi
 
 log "按 Enter 键停止所有服务..."

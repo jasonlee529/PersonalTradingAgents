@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Layout as ArcoLayout } from '@arco-design/web-react'
+import { useAuthStore } from '../store/useAuthStore'
 import {
   IconDashboard,
   IconHome,
@@ -28,6 +29,8 @@ const menuItems = [
 export default function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
+  const username = useAuthStore((state) => state.username)
+  const logout = useAuthStore((state) => state.logout)
   const [collapsed, setCollapsed] = useState(false)
   const isMenuActive = (key: string) => {
     if (location.pathname === key) return true
@@ -37,6 +40,10 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     return false
   }
   const activeItem = menuItems.find((item) => isMenuActive(item.key))
+  const handleLogout = async () => {
+    await logout()
+    navigate('/login', { replace: true })
+  }
 
   return (
     <ArcoLayout style={{ minHeight: '100dvh', background: 'var(--bg-base)' }}>
@@ -159,21 +166,57 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </span>
           </div>
 
-          <span
-            style={{
-              fontSize: 12,
-              color: 'var(--text-dim)',
-              fontWeight: 500,
-              letterSpacing: '0.02em',
-              fontFamily: 'var(--font-mono)',
-            }}
-          >
-            {new Date().toLocaleDateString('zh-CN', {
-              year: 'numeric',
-              month: '2-digit',
-              day: '2-digit',
-            })}
-          </span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <span
+              style={{
+                fontSize: 12,
+                color: 'var(--text-muted)',
+                fontWeight: 600,
+                letterSpacing: '0.02em',
+              }}
+            >
+              {username || 'jason'}
+            </span>
+            <span
+              style={{
+                fontSize: 12,
+                color: 'var(--text-dim)',
+                fontWeight: 500,
+                letterSpacing: '0.02em',
+                fontFamily: 'var(--font-mono)',
+              }}
+            >
+              {new Date().toLocaleDateString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+              })}
+            </span>
+            <button
+              onClick={handleLogout}
+              style={{
+                background: 'transparent',
+                border: '1px solid var(--border-medium)',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--text-secondary)',
+                cursor: 'pointer',
+                padding: '5px 10px',
+                fontSize: 12,
+                fontWeight: 600,
+                transition: 'all 0.2s ease',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-accent)'
+                e.currentTarget.style.color = 'var(--text-primary)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.borderColor = 'var(--border-medium)'
+                e.currentTarget.style.color = 'var(--text-secondary)'
+              }}
+            >
+              退出
+            </button>
+          </div>
         </Header>
 
         <Content

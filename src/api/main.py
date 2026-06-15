@@ -3,11 +3,13 @@ import uuid
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from src.config import Settings
 from src.api.dependencies import AppServices
 from src.api.routers import (
     analysis,
+    auth,
     portfolio,
     raw,
     sectors,
@@ -52,6 +54,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
 
     app.state.services = AppServices(settings)
+    app.state.auth_tokens = set()
+
+    @app.middleware("http")
+    async def auth_middleware(request: Request, call_next):
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
+        path = request.url.path
+        public_paths = {"/api/auth/login", "/api/health"}
+        if path.startswith("/api") and path not in public_paths:
+            auth_header = request.headers.get("Authorization", "")
+            scheme, _, token = auth_header.partition(" ")
+            if scheme.lower() != "bearer" or token not in app.state.auth_tokens:
+                return JSONResponse(
+                    {"detail": "Not authenticated"},
+                    status_code=401,
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            request.state.user = "jason"
+
+        return await call_next(request)
 
     @app.middleware("http")
     async def log_context_middleware(request: Request, call_next):
@@ -62,6 +85,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["X-Trace-Id"] = trace_id
         return response
 
+    app.include_router(auth.router, prefix="/api")
     app.include_router(portfolio.router, prefix="/api")
     app.include_router(stocks.router, prefix="/api")
     app.include_router(analysis.router, prefix="/api")
