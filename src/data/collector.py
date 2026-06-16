@@ -9,6 +9,7 @@ from src.data.cache import DataCache
 from src.data.historical_store import HistoricalDataStore
 from src.data.sources.baostock_source import BaoStockSource
 from src.data.sources.baidu_source import BaiduSource
+from src.data.sources.akshare_source import AkshareSource
 from src.data.sources.cls_source import CLSSource
 from src.data.sources.cninfo_source import CninfoSource
 from src.data.sources.eastmoney_source import EastmoneySource
@@ -36,6 +37,7 @@ DOMESTIC_SOURCE_NAMES = {
     "baostock",
     "indicator",
     "xueqiu",
+    "akshare",
 }
 
 
@@ -56,6 +58,7 @@ class DataCollector:
             "baostock": BaoStockSource(),
             "indicator": IndicatorSource(settings),
             "xueqiu": XueqiuSource(settings),
+            "akshare": AkshareSource(),
         }
         self._priority = getattr(settings, "data_source_priority", {})
         self._historical_store = None
@@ -95,6 +98,8 @@ class DataCollector:
                 priority = ["ths", "cninfo"]
             elif data_type == "research_reports":
                 priority = ["eastmoney"]
+            elif data_type in {"balance_sheet", "cashflow", "income_statement"}:
+                priority = ["sina", "eastmoney", "akshare"]
             elif data_type == "market_indices":
                 priority = ["eastmoney", "tencent", "sina"]
             elif data_type == "market_statistics":

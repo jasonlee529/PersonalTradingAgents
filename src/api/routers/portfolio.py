@@ -36,9 +36,7 @@ async def list_holdings(services: AppServices = Depends(get_services)):
     holdings = await services.portfolio.list_holdings()
     results = []
     for h in holdings:
-        holding_name = await _resolve_holding_name(h.symbol, h.name, services)
-        if holding_name and holding_name != h.name:
-            await services.portfolio.update_holding_name(h.symbol, holding_name)
+        holding_name = h.name or h.symbol
         pos = await services.portfolio.get_position(h.symbol)
         results.append(HoldingDetailResponse(
             holding=HoldingResponse(

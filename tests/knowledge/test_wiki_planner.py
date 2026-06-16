@@ -137,6 +137,61 @@ async def test_llm_planner_defaults_missing_claim_confidence(planner_settings):
 
 
 @pytest.mark.asyncio
+async def test_llm_planner_normalizes_malformed_contradictions(planner_settings):
+    malformed_plan = deepcopy(VALID_PLAN_JSON)
+    malformed_plan["contradictions"] = [
+        {
+            "contradiction_id": "contradiction:test",
+            "claim_a": "claim:test_001",
+            "claim_b": "claim:test_002",
+            "reason": "A and B cannot both be true.",
+            "status": "resolved",
+        }
+    ]
+    fake = FakeLLM([json.dumps(malformed_plan)])
+    planner = LLMWikiPlanner(planner_settings, invoke_fn=fake)
+
+    plan = await planner.plan_source_ingest(
+        source=SAMPLE_SOURCE,
+        related_pages=[],
+        schema_text="schema",
+    )
+
+    assert len(plan.contradictions) == 1
+    contradiction = plan.contradictions[0]
+    assert contradiction.claim_id == "contradiction:test"
+    assert contradiction.claim_type == "contradiction"
+    assert contradiction.statement == "A and B cannot both be true."
+    assert contradiction.subject_type == "stock"
+    assert contradiction.subject_id == "603738"
+    assert contradiction.source_ids == ["manual_source:test_001"]
+    assert contradiction.contradicts == ["claim:test_001", "claim:test_002"]
+    assert contradiction.metadata["claim_a"] == "claim:test_001"
+    assert contradiction.metadata["claim_b"] == "claim:test_002"
+    assert "Normalized 1 malformed contradiction" in plan.warnings[0]
+
+
+@pytest.mark.asyncio
+async def test_llm_planner_normalizes_minimal_contradictions(planner_settings):
+    malformed_plan = deepcopy(VALID_PLAN_JSON)
+    malformed_plan["contradictions"] = [{"contradiction_id": "contradiction:empty", "status": "resolved"}]
+    fake = FakeLLM([json.dumps(malformed_plan)])
+    planner = LLMWikiPlanner(planner_settings, invoke_fn=fake)
+
+    plan = await planner.plan_source_ingest(
+        source=SAMPLE_SOURCE,
+        related_pages=[],
+        schema_text="schema",
+    )
+
+    assert len(plan.contradictions) == 1
+    assert plan.contradictions[0].claim_id == "contradiction:empty"
+    assert plan.contradictions[0].statement == "contradiction:empty (resolved)"
+    assert plan.contradictions[0].source_ids == ["manual_source:test_001"]
+    assert "Normalized 1 malformed contradiction" in plan.warnings[0]
+
+
+@pytest.mark.asyncio
 async def test_llm_planner_non_json_triggers_repair(planner_settings):
     # First call: non-JSON, second call: valid JSON
     fake = FakeLLM(["Some prose before JSON\n```json\n" + json.dumps(VALID_PLAN_JSON) + "\n```", json.dumps(VALID_PLAN_JSON)])
@@ -234,6 +289,32 @@ async def test_llm_planner_unknown_source_id_rejected(planner_settings):
         )
 
     assert "source_id" in str(exc_info.value).lower()
+
+
+@pytest.mark.asyncio
+async def test_llm_planner_normalizes_close_source_id_typo(planner_settings):
+    typo_plan = deepcopy(VALID_PLAN_JSON)
+    typo_plan["source_ids"] = ["manual_source:test_00l"]
+    typo_plan["pages_to_create"][0]["metadata"] = {
+        "source_id": "manual_source:test_00l",
+        "source_ids": ["manual_source:test_00l"],
+    }
+    typo_plan["claims"][0]["source_ids"] = ["manual_source:test_00l"]
+
+    fake = FakeLLM([json.dumps(typo_plan)])
+    planner = LLMWikiPlanner(planner_settings, invoke_fn=fake)
+
+    plan = await planner.plan_source_ingest(
+        source=SAMPLE_SOURCE,
+        related_pages=[],
+        schema_text="schema",
+    )
+
+    assert plan.source_ids == ["manual_source:test_001"]
+    assert plan.claims[0].source_ids == ["manual_source:test_001"]
+    assert plan.pages_to_create[0].metadata["source_id"] == "manual_source:test_001"
+    assert plan.pages_to_create[0].metadata["source_ids"] == ["manual_source:test_001"]
+    assert "Normalized mistyped source_id" in plan.warnings[0]
 
 
 @pytest.mark.asyncio
@@ -490,6 +571,52 @@ async def test_llm_planner_normalizes_common_stock_page_id_variants(planner_sett
         "stock:603738:timeline",
     ]
     assert plan.claims[0].page_ids == ["stock:603738", "stock:603738:timeline"]
+
+
+@pytest.mark.asyncio
+async def test_llm_planner_normalizes_portfolio_page_id_variants(planner_settings):
+    plan_json = deepcopy(VALID_PLAN_JSON)
+    plan_json["pages_to_create"] = [
+        {
+            "page_id": "portfolio_overview:latest",
+            "page_type": "portfolio_overview",
+            "title": "Portfolio",
+            "slug": "pages/portfolio/overview",
+            "markdown": "# Portfolio\n\nContent",
+            "metadata": {},
+        },
+        {
+            "page_id": "trade-review",
+            "page_type": "trade_review",
+            "title": "Trade Review",
+            "slug": "pages/portfolio/trade_review",
+            "markdown": "# Trade Review\n\nContent",
+            "metadata": {},
+        },
+    ]
+    plan_json["page_patches"] = [
+        {
+            "page_id": "portfolio_overview:latest",
+            "section_id": "summary",
+            "markdown": "Update",
+            "mode": "replace",
+        }
+    ]
+
+    fake = FakeLLM([json.dumps(plan_json)])
+    planner = LLMWikiPlanner(planner_settings, invoke_fn=fake)
+
+    plan = await planner.plan_source_ingest(
+        source=SAMPLE_SOURCE,
+        related_pages=[],
+        schema_text="schema",
+    )
+
+    assert [page.page_id for page in plan.pages_to_create] == [
+        "portfolio:overview",
+        "portfolio:trade_review",
+    ]
+    assert plan.page_patches[0].page_id == "portfolio:overview"
 
 
 @pytest.mark.asyncio

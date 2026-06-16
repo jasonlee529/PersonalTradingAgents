@@ -93,7 +93,11 @@ class DataVendor:
         try:
             data = self._run(self._collector.get_fundamentals(code))
             if not data:
-                return f"No fundamentals data for {code}"
+                return (
+                    f"# Fundamentals for {code}\n\n"
+                    "Data coverage status: unavailable from configured data sources. "
+                    "This is missing input, not negative fundamental evidence."
+                )
             lines = [f"# Fundamentals for {code}"]
             for k, v in data.items():
                 if k != "symbol":
@@ -107,7 +111,11 @@ class DataVendor:
         try:
             data = self._run(self._collector.get_balance_sheet(code))
             if not data:
-                return f"No balance sheet data for {code}"
+                return (
+                    f"# Balance Sheet for {code}\n\n"
+                    "Data coverage status: unavailable from configured data sources. "
+                    "Treat this as missing input, not as evidence of weak balance-sheet quality."
+                )
             return f"# Balance Sheet for {code}\n\n{data}"
         except Exception as e:
             return f"Error getting balance sheet for {code}: {e}"
@@ -117,7 +125,11 @@ class DataVendor:
         try:
             data = self._run(self._collector.get_cashflow(code))
             if not data:
-                return f"No cashflow data for {code}"
+                return (
+                    f"# Cashflow for {code}\n\n"
+                    "Data coverage status: unavailable from configured data sources. "
+                    "Treat this as missing input, not as evidence of weak cash generation."
+                )
             return f"# Cashflow for {code}\n\n{data}"
         except Exception as e:
             return f"Error getting cashflow for {code}: {e}"
@@ -127,7 +139,11 @@ class DataVendor:
         try:
             data = self._run(self._collector.get_income_statement(code))
             if not data:
-                return f"No income statement data for {code}"
+                return (
+                    f"# Income Statement for {code}\n\n"
+                    "Data coverage status: unavailable from configured data sources. "
+                    "Treat this as missing input, not as evidence of poor profitability."
+                )
             return f"# Income Statement for {code}\n\n{data}"
         except Exception as e:
             return f"Error getting income statement for {code}: {e}"

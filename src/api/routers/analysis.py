@@ -3,6 +3,7 @@ import json
 import logging
 import sys
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, WebSocket
@@ -80,10 +81,10 @@ async def start_analysis(body: AnalysisRequest, services: AppServices = Depends(
         config["research_depth"] = body.research_depth
     if body.thinking_agents is not None:
         config["thinking_agents"] = body.thinking_agents
-    if body.trade_date:
-        config["trade_date"] = body.trade_date
-    if body.checkpoint_enabled is not None:
-        config["checkpoint_enabled"] = body.checkpoint_enabled
+    config["trade_date"] = body.trade_date or datetime.now().strftime("%Y-%m-%d")
+    config["checkpoint_enabled"] = (
+        body.checkpoint_enabled if body.checkpoint_enabled is not None else True
+    )
 
     job = AnalysisJob(
         id=str(uuid.uuid4())[:8],
@@ -271,6 +272,12 @@ async def retry_job(job_id: str, services: AppServices = Depends(get_services)):
     job = await services.job_store.get(job_id)
     if not job or job.status.value != "error":
         raise HTTPException(status_code=400, detail="任务不存在或不在错误状态")
+    cfg = dict(job.config or {})
+    cfg.setdefault("trade_date", datetime.now().strftime("%Y-%m-%d"))
+    cfg.setdefault("checkpoint_enabled", True)
+    if job.phase:
+        cfg["resume_failed_step"] = job.phase
+    job.config = cfg
     job.retry()
     await services.job_store.save(job)
     return _job_to_response(job)

@@ -15,6 +15,15 @@ class FakeCollector:
     async def get_global_news(self, look_back_days=7, limit=10):
         return [{"time": "2026-06-01", "title": f"{look_back_days}/{limit}", "source": "cls"}]
 
+    async def get_balance_sheet(self, code):
+        return None
+
+    async def get_cashflow(self, code):
+        return None
+
+    async def get_income_statement(self, code):
+        return None
+
 
 @pytest.fixture
 def vendor():
@@ -55,3 +64,21 @@ def test_get_global_news_accepts_tool_signature(vendor):
 def test_get_global_news_accepts_legacy_signature(vendor):
     result = vendor.get_global_news(2, 4)
     assert "2/4" in result
+
+
+def test_missing_balance_sheet_is_marked_as_data_coverage_not_bearish(vendor):
+    result = vendor.get_balance_sheet("000001.SZ")
+    assert "Data coverage status: unavailable" in result
+    assert "not as evidence of weak balance-sheet quality" in result
+
+
+def test_missing_cashflow_is_marked_as_data_coverage_not_bearish(vendor):
+    result = vendor.get_cashflow("000001.SZ")
+    assert "Data coverage status: unavailable" in result
+    assert "not as evidence of weak cash generation" in result
+
+
+def test_missing_income_statement_is_marked_as_data_coverage_not_bearish(vendor):
+    result = vendor.get_income_statement("000001.SZ")
+    assert "Data coverage status: unavailable" in result
+    assert "not as evidence of poor profitability" in result

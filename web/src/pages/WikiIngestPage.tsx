@@ -14,7 +14,7 @@ import DataList from '../components/DataList'
 import EmptyState from '../components/EmptyState'
 
 const RUNNING_STATUSES = new Set(['queued', 'planning', 'applying'])
-const MAX_RUNNING = 5
+const MAX_RUNNING = 10
 
 export default function WikiIngestPage() {
   const navigate = useNavigate()
@@ -50,6 +50,11 @@ export default function WikiIngestPage() {
     [displaySources],
   )
 
+  const batchableSources = useMemo(
+    () => displaySources.filter((source) => !RUNNING_STATUSES.has(source.wiki_status)).slice(0, MAX_RUNNING - runningCount),
+    [displaySources, runningCount],
+  )
+
   const applyMutation = useMutation({
     mutationFn: (sourceId: string) => wikiApi.ingestSource(sourceId, {}),
     onSuccess: (resp) => {
@@ -77,6 +82,38 @@ export default function WikiIngestPage() {
         return next
       })
       Message.error(err?.response?.data?.detail || '执行失败')
+      queryClient.invalidateQueries({ queryKey: ['wiki-pending-sources'] })
+    },
+  })
+
+  const batchMutation = useMutation({
+    mutationFn: (sourceIds: string[]) => wikiApi.ingestBatch({ source_ids: sourceIds }),
+    onSuccess: (resp) => {
+      const data = resp.data
+      const queuedIds = (data.results || [])
+        .filter((result: any) => RUNNING_STATUSES.has(result.status))
+        .map((result: any) => result.source_id)
+
+      if (queuedIds.length > 0) {
+        setLocalRunning((prev) => {
+          const next = { ...prev }
+          queuedIds.forEach((sourceId: string) => {
+            next[sourceId] = 'queued'
+          })
+          return next
+        })
+        Message.success(`已批量加入写入队列：${queuedIds.length} 条`)
+      } else if (data.batch_status === 'skipped') {
+        Message.info('没有需要批量写入的材料')
+      } else {
+        Message.warning('批量写入未产生新的队列任务')
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['wiki-pending-sources'] })
+      queryClient.invalidateQueries({ queryKey: ['wiki-ingest-runs'] })
+    },
+    onError: (err: any) => {
+      Message.error(err?.response?.data?.detail || '批量执行失败')
       queryClient.invalidateQueries({ queryKey: ['wiki-pending-sources'] })
     },
   })
@@ -159,7 +196,25 @@ export default function WikiIngestPage() {
             执行中 {runningCount} / {MAX_RUNNING}
           </div>
         </div>
-        <Button icon={<IconStorage />} onClick={() => navigate('/wiki')}>知识库首页</Button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <Button
+            type="primary"
+            icon={<IconPlayArrow />}
+            loading={batchMutation.isPending}
+            disabled={batchableSources.length === 0 || batchMutation.isPending}
+            onClick={() => {
+              const sourceIds = batchableSources.map((source) => source.source_id)
+              if (sourceIds.length === 0) {
+                Message.info('没有可批量写入的材料')
+                return
+              }
+              batchMutation.mutate(sourceIds)
+            }}
+          >
+            批量执行
+          </Button>
+          <Button icon={<IconStorage />} onClick={() => navigate('/wiki')}>知识库首页</Button>
+        </div>
       </div>
 
       <Card>
