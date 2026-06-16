@@ -132,6 +132,59 @@ class SinaSource(DataSource):
             logger.warning("Sina income statement failed for %s: %s", code, e)
             return None
 
+    async def get_limit_up_stocks(
+        self, trade_date: str = "", market: str = "all"
+    ) -> Optional[list[dict]]:
+        """获取涨停股票列表，通过新浪财经涨停专题页面。"""
+        try:
+            # 新浪财经涨停池数据接口
+            url = "https://vip.stock.finance.sina.com.cn/q/view/vML_Knowledge.php"
+            params = {
+                "page": "1",
+                "num": "10000",
+                "type": "1",  # 1=涨停
+                "filter": "YSTAG",
+            }
+            headers = {
+                "User-Agent": _UA,
+                "Referer": "https://vip.stock.finance.sina.com.cn/",
+            }
+            r = await asyncio.to_thread(requests.get, url, params=params, headers=headers, timeout=15)
+            r.raise_for_status()
+            r.encoding = "gb2312"
+            html = r.text
+
+            import re
+            items = []
+            # 解析表格数据，格式: 代码, 名称, 涨幅, 现价, 成交量, 成交额, ...
+            rows = re.findall(
+                r"<td[^>]*>(\d{6})</td>\s*<td[^>]*>([^<]+)</td>\s*<td[^>]*>([\d.]+)</td>\s*<td[^>]*>([\d.]+)</td>",
+                html,
+            )
+            for code, name, change_pct, price in rows:
+                code = code.zfill(6)
+                items.append({
+                    "symbol": code,
+                    "name": name.strip(),
+                    "market": "sh" if code.startswith("6") else "sz",
+                    "trade_date": trade_date,
+                    "price": float(price) if price else None,
+                    "change_pct": float(change_pct) if change_pct else None,
+                    "volume": None,
+                    "turnover": None,
+                    "turnover_rate": None,
+                    "first_limit_up_time": None,
+                    "last_limit_up_time": None,
+                    "seal_amount": None,
+                    "consecutive_days": None,
+                    "reason": "",
+                    "source": self.name,
+                })
+            return items if items else None
+        except Exception as e:
+            logger.warning("Sina limit-up stocks failed for %s: %s", trade_date, e)
+            return None
+
     async def get_news(self, symbol: str, start_date: str = "", end_date: str = "", limit: int = 20) -> Optional[list[dict]]:
         code = str(normalize_ticker(symbol)).zfill(6)
         try:

@@ -92,10 +92,26 @@ export interface LimitUpStockParams {
   q?: string
   limit?: number
   offset?: number
+  min_change_pct?: number
+}
+
+export interface MarketListParams {
+  trade_date?: string
+  market?: string
+  q?: string
+  sort?: string
+  limit?: number
+  offset?: number
+  refresh?: boolean
 }
 
 export const stockApi = {
   limitUp: (params?: LimitUpStockParams) => api.get<LimitUpStockListResponse>('/stocks/limit-up', { params }),
+  limitUpFiltered: (params?: MarketListParams & { min_change_pct?: number }) =>
+    api.get<LimitUpStockListResponse>('/stocks/limit-up-filtered', { params }),
+  marketList: (params?: MarketListParams) => api.get<any>('/stocks/market-list', { params }),
+  marketListRefresh: (params?: { trade_date?: string }) =>
+    api.post<any>('/stocks/market-list/refresh', null, { params }),
   quote: (symbol: string) => api.get(`/stocks/${symbol}/quote`),
   kline: (symbol: string, period?: string, limit?: number) =>
     api.get(`/stocks/${symbol}/kline`, { params: { period, limit } }),

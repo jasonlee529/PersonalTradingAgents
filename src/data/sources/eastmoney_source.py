@@ -231,14 +231,32 @@ class EastmoneySource(DataSource):
         if not trade_date:
             trade_date = datetime.now().strftime("%Y-%m-%d")
 
-        # 尝试 push2ex 专用接口
-        items = await self._fetch_limit_up_push2ex(trade_date)
-        if items is not None and len(items) > 0:
-            return items
+        # 尝试所有数据源，合并结果去重
+        all_items: dict[str, dict] = {}
+        sources = [
+            ("push2ex", self._fetch_limit_up_push2ex(trade_date)),
+            ("quote.ztb", self._fetch_limit_up_quote_ztb(trade_date)),
+            ("datacenter", self._fetch_limit_up_datacenter(trade_date)),
+        ]
 
-        # push2ex 失败或无数据，回退到 datacenter 龙虎榜接口
-        logger.info("push2ex limit-up pool empty for %s, trying datacenter fallback", trade_date)
-        return await self._fetch_limit_up_datacenter(trade_date)
+        for source_name, future in sources:
+            try:
+                items = await future
+                if items:
+                    logger.info("eastmoney %s returned %d limit-up stocks for %s", source_name, len(items), trade_date)
+                    for item in items:
+                        code = item.get("symbol", "")
+                        if code and code not in all_items:
+                            all_items[code] = item
+            except Exception as e:
+                logger.warning("eastmoney %s failed for %s: %s", source_name, trade_date, e)
+
+        if all_items:
+            return list(all_items.values())
+
+        # 所有数据源都失败
+        logger.warning("all eastmoney sources failed for %s", trade_date)
+        return None
 
     async def _fetch_limit_up_push2ex(self, trade_date: str) -> Optional[list[dict]]:
         """原 push2ex 涨停池专用接口。"""
@@ -282,6 +300,53 @@ class EastmoneySource(DataSource):
             return items if items else None
         except Exception as e:
             logger.warning("Eastmoney push2ex limit-up failed for %s: %s", trade_date, e)
+            return None
+
+    async def _fetch_limit_up_quote_ztb(self, trade_date: str) -> Optional[list[dict]]:
+        """通过 quote.eastmoney.com/ztb/detail 获取涨停股票数据。"""
+        date_param = trade_date.replace("-", "")
+        try:
+            # quote.eastmoney.com/ztb/detail 页面的数据接口
+            url = "https://quote.eastmoney.com/ztb/detail"
+            params = {
+                "date": date_param,
+                "page": "1",
+                "pageSize": "10000",
+            }
+            r = await asyncio.to_thread(
+                requests.get, url, params=params, headers={"User-Agent": _UA, "Referer": "https://quote.eastmoney.com/"}, timeout=15
+            )
+            # 解析返回的 JSON 数据
+            data = r.json()
+            rows = data.get("data") or data.get("list") or []
+            if not rows:
+                return None
+
+            items = []
+            for row in rows:
+                code = str(row.get("code") or row.get("ztdm") or "").zfill(6)
+                if not code or code == "000000":
+                    continue
+                items.append({
+                    "symbol": code,
+                    "name": row.get("name") or row.get("ztmc") or "",
+                    "market": "sh" if code.startswith("6") else "sz",
+                    "trade_date": trade_date,
+                    "price": self._number_or_none(row.get("price") or row.get("ztdj")),
+                    "change_pct": self._number_or_none(row.get("zdf") or row.get("zdp")),
+                    "volume": self._int_or_none(row.get("volume") or row.get("cjl")),
+                    "turnover": self._number_or_none(row.get("turnover") or row.get("cjje")),
+                    "turnover_rate": self._number_or_none(row.get("换手率") or row.get("hsl")),
+                    "first_limit_up_time": row.get("firstTime") or row.get("first_limit_up_time"),
+                    "last_limit_up_time": row.get("lastTime") or row.get("last_limit_up_time"),
+                    "seal_amount": self._number_or_none(row.get("sealAmount") or row.get("fund")),
+                    "consecutive_days": self._int_or_none(row.get("days") or row.get("lbc")),
+                    "reason": row.get("reason") or row.get("hybk") or "",
+                    "source": self.name,
+                })
+            return items if items else None
+        except Exception as e:
+            logger.warning("Eastmoney quote.ztb limit-up failed for %s: %s", trade_date, e)
             return None
 
     async def _fetch_limit_up_datacenter(self, trade_date: str) -> Optional[list[dict]]:
@@ -746,29 +811,16 @@ class EastmoneySource(DataSource):
     async def get_market_statistics(self) -> Optional[dict]:
         """Fetch all A-share ticks and compute breadth stats."""
         try:
-            url = "https://push2.eastmoney.com/api/qt/clist/get"
-            params = {
-                "pn": "1", "pz": "5000", "po": "1", "np": "1",
-                "fltt": "2", "invt": "2",
-                "fs": "m:0+t:6,m:0+t:13,m:1+t:2,m:1+t:23",
-                "fields": "f2,f3,f4,f5,f6,f12,f14,f17,f18",
-            }
-            r = await asyncio.to_thread(
-                requests.get, url, params=params, headers={"User-Agent": _UA}, timeout=20
-            )
-            d = r.json()
-            items = d.get("data", {}).get("diff", [])
-            if not items:
+            all_stocks = await self.get_all_stock_quotes()
+            if not all_stocks:
                 return None
 
             up_count = down_count = flat_count = limit_up_count = limit_down_count = 0
             total_amount = 0.0
 
-            for item in items:
-                change_pct = float(item.get("f3") or 0)
-                amount = float(item.get("f6") or 0)
-                code = str(item.get("f12", ""))
-                name = str(item.get("f14", ""))
+            for stock in all_stocks:
+                change_pct = float(stock.get("change_pct") or 0)
+                amount = float(stock.get("turnover") or 0)
                 total_amount += amount
 
                 if change_pct > 0:
@@ -778,30 +830,150 @@ class EastmoneySource(DataSource):
                 else:
                     flat_count += 1
 
-                # Detect limit-up/down based on stock type
-                limit_ratio = 0.10
-                if code.startswith(("688", "30")):
-                    limit_ratio = 0.20
-                elif code.startswith(("8", "9", "43")):
-                    limit_ratio = 0.30
-                elif "ST" in name or "*ST" in name:
-                    limit_ratio = 0.05
-
-                if change_pct >= limit_ratio * 100 - 0.5:
+                if stock.get("is_limit_up"):
                     limit_up_count += 1
-                elif change_pct <= -limit_ratio * 100 + 0.5:
+                if stock.get("is_limit_down"):
                     limit_down_count += 1
 
             return {
+                "total_stocks": len(all_stocks),
                 "up_count": up_count,
                 "down_count": down_count,
                 "flat_count": flat_count,
                 "limit_up_count": limit_up_count,
                 "limit_down_count": limit_down_count,
-                "total_amount": round(total_amount / 1e8, 2),
+                "total_turnover": total_amount,
             }
         except Exception as e:
-            logger.warning("Eastmoney market stats failed: %s", e)
+            logger.warning("Eastmoney market statistics failed: %s", e)
+            return None
+
+    async def get_all_stock_quotes(self) -> Optional[list[dict]]:
+        """获取全市场所有 A 股的实时行情数据（含涨停/跌停状态）。"""
+        try:
+            url = "https://push2.eastmoney.com/api/qt/clist/get"
+
+            sectors = [
+                ("m:0+t:6", "深市主板"),
+                ("m:0+t:80", "创业板"),
+                ("m:0+t:13", "深市主板"),
+                ("m:1+t:2", "沪市主板"),
+                ("m:1+t:23", "沪市主板"),
+                ("m:1+t:10", "科创板"),
+                ("m:1+t:4", "沪市主板"),
+            ]
+
+            all_stocks: list[dict] = []
+            seen_symbols: set[str] = set()
+
+            for secid_filters, _label in sectors:
+                page = 1
+                page_size = 5000
+                while True:
+                    params = {
+                        "pn": str(page),
+                        "pz": str(page_size),
+                        "po": "1",
+                        "np": "1",
+                        "fltt": "2",
+                        "invt": "2",
+                        "fs": secid_filters,
+                        "fields": "f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13,f14,f15,f16,f17,f18,f20,f21,f22,f23,f24,f25,f112,f113,f114,f128,f140,f141,f162,f167,f168,f169,f170,f171,f183,f184,f185,f186,f187,f189,f190",
+                    }
+                    r = await asyncio.to_thread(
+                        requests.get, url, params=params, headers={"User-Agent": _UA}, timeout=20
+                    )
+                    data = r.json()
+                    items = data.get("data", {}).get("diff", []) or []
+                    if not items:
+                        break
+
+                    for item in items:
+                        symbol = str(item.get("f12") or "").strip().zfill(6)
+                        if not symbol or symbol in seen_symbols:
+                            continue
+                        seen_symbols.add(symbol)
+
+                        market_code = str(item.get("f13") or (1 if symbol.startswith("6") else 0))
+                        market = "sh" if market_code == "1" else "sz"
+
+                        price_raw = item.get("f2")
+                        change_pct_raw = item.get("f3")
+                        change_amount_raw = item.get("f4")
+                        volume_raw = item.get("f5")
+                        turnover_raw = item.get("f6")
+                        high_raw = item.get("f15")
+                        low_raw = item.get("f16")
+                        open_raw = item.get("f17")
+                        prev_close_raw = item.get("f18")
+                        turnover_rate_raw = item.get("f8")
+                        pe_ratio_raw = item.get("f9")
+                        amplitude_raw = item.get("f7")
+                        total_market_cap_raw = item.get("f20")
+                        float_market_cap_raw = item.get("f21")
+                        limit_up_price_raw = item.get("f22")
+                        limit_down_price_raw = item.get("f23")
+                        name = str(item.get("f14") or "")
+
+                        price = float(price_raw) if price_raw not in (None, "-", "") else 0.0
+                        change_pct = float(change_pct_raw) if change_pct_raw not in (None, "-", "") else 0.0
+                        change_amount = float(change_amount_raw) if change_amount_raw not in (None, "-", "") else 0.0
+                        volume = int(float(volume_raw or 0)) if volume_raw not in (None, "-", "") else 0
+                        turnover = float(turnover_raw) if turnover_raw not in (None, "-", "") else 0.0
+                        high = float(high_raw) if high_raw not in (None, "-", "") else 0.0
+                        low = float(low_raw) if low_raw not in (None, "-", "") else 0.0
+                        open_price = float(open_raw) if open_raw not in (None, "-", "") else 0.0
+                        prev_close = float(prev_close_raw) if prev_close_raw not in (None, "-", "") else 0.0
+                        turnover_rate = float(turnover_rate_raw) if turnover_rate_raw not in (None, "-", "") else None
+                        pe_ratio = float(pe_ratio_raw) if pe_ratio_raw not in (None, "-", "") else None
+                        amplitude = float(amplitude_raw) if amplitude_raw not in (None, "-", "") else None
+                        total_market_cap = float(total_market_cap_raw) if total_market_cap_raw not in (None, "-", "") else None
+                        float_market_cap = float(float_market_cap_raw) if float_market_cap_raw not in (None, "-", "") else None
+                        limit_up_price = float(limit_up_price_raw) if limit_up_price_raw not in (None, "-", "") else None
+                        limit_down_price = float(limit_down_price_raw) if limit_down_price_raw not in (None, "-", "") else None
+
+                        is_limit_up = False
+                        is_limit_down = False
+                        if limit_up_price and price >= limit_up_price - 0.001:
+                            is_limit_up = True
+                        elif limit_down_price and price <= limit_down_price + 0.001:
+                            is_limit_down = True
+
+                        all_stocks.append({
+                            "symbol": symbol,
+                            "name": name,
+                            "market": market,
+                            "price": price,
+                            "change_pct": round(change_pct, 2),
+                            "change_amount": round(change_amount, 2),
+                            "volume": volume,
+                            "turnover": turnover,
+                            "high": high,
+                            "low": low,
+                            "open": open_price,
+                            "prev_close": prev_close,
+                            "turnover_rate": turnover_rate,
+                            "pe_ratio": pe_ratio,
+                            "amplitude": amplitude,
+                            "total_market_cap": total_market_cap,
+                            "float_market_cap": float_market_cap,
+                            "limit_up_price": limit_up_price,
+                            "limit_down_price": limit_down_price,
+                            "is_limit_up": is_limit_up,
+                            "is_limit_down": is_limit_down,
+                            "board": "sh_main" if symbol.startswith("6") else "sz_main",
+                        })
+
+                    if len(items) < page_size:
+                        break
+                    page += 1
+                    if page > 10:
+                        break
+
+            logger.info("Eastmoney all-stock quotes: collected %d stocks", len(all_stocks))
+            return all_stocks if all_stocks else None
+        except Exception as e:
+            logger.warning("Eastmoney all-stock quotes failed: %s", e)
             return None
 
     async def get_sector_rankings(self, n: int = 5) -> Optional[tuple[list[dict], list[dict]]]:

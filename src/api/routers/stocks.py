@@ -33,6 +33,123 @@ def _matches_query(item: dict, q: str) -> bool:
     return needle in str(item.get("symbol", "")).lower() or needle in str(item.get("name", "")).lower()
 
 
+class MarketStockItem(dict):
+    pass
+
+
+class MarketListResponse(dict):
+    pass
+
+
+@router.get("/market-list")
+async def list_market_stocks(
+    trade_date: str = Query(default_factory=lambda: datetime.now().strftime("%Y-%m-%d")),
+    market: str = Query("all", description="市场筛选: all | sh | sz"),
+    q: str = Query("", description="代码或名称搜索"),
+    sort: str = Query("change_pct_desc", description="排序: change_pct_desc/asc, turnover_desc/asc, price_desc/asc"),
+    limit: int = Query(200, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
+    refresh: bool = Query(False, description="是否强制刷新（重新抓取远程数据）"),
+    services: AppServices = Depends(get_services),
+):
+    """获取全市场股票列表及当日行情数据。数据自动保存到本地文件。"""
+    rows, error = await services.collector.get_market_list(
+        trade_date=trade_date,
+        refresh=refresh,
+    )
+    if rows is None:
+        rows = []
+
+    filtered = [item for item in rows if _matches_query(item, q)]
+    if market == "sh":
+        filtered = [item for item in filtered if str(item.get("symbol", "")).startswith("6")]
+    elif market == "sz":
+        filtered = [item for item in filtered if not str(item.get("symbol", "")).startswith("6")]
+
+    sort_parts = sort.split("_")
+    sort_key_base = "_".join(sort_parts[:-1])
+    sort_order = sort_parts[-1] if sort_parts else "desc"
+
+    def _safe_num(item, key):
+        v = item.get(key)
+        try:
+            return float(v) if v not in (None, "", "-") else 0.0
+        except (TypeError, ValueError):
+            return 0.0
+
+    if sort_key_base == "change_pct":
+        filtered.sort(key=lambda x: _safe_num(x, "change_pct"), reverse=sort_order == "desc")
+    elif sort_key_base == "turnover":
+        filtered.sort(key=lambda x: _safe_num(x, "turnover"), reverse=sort_order == "desc")
+    elif sort_key_base == "price":
+        filtered.sort(key=lambda x: _safe_num(x, "price"), reverse=sort_order == "desc")
+    elif sort_key_base == "volume":
+        filtered.sort(key=lambda x: _safe_num(x, "volume"), reverse=sort_order == "desc")
+
+    total = len(filtered)
+    page = filtered[offset:offset + limit]
+    return {
+        "trade_date": trade_date,
+        "market": market,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "items": page,
+        "error": error,
+    }
+
+
+@router.post("/market-list/refresh")
+async def refresh_market_list(
+    trade_date: str = Query(default_factory=lambda: datetime.now().strftime("%Y-%m-%d")),
+    services: AppServices = Depends(get_services),
+):
+    """强制刷新全市场数据（从远程重新抓取并保存到本地）。"""
+    rows, error = await services.collector.get_market_list(
+        trade_date=trade_date,
+        refresh=True,
+    )
+    return {
+        "trade_date": trade_date,
+        "total": len(rows) if rows else 0,
+        "status": "ok" if rows else "error",
+        "error": error,
+    }
+
+
+@router.get("/limit-up-filtered")
+async def list_limit_up_filtered(
+    trade_date: str = Query(default_factory=lambda: datetime.now().strftime("%Y-%m-%d")),
+    market: str = Query("all"),
+    q: str = Query(""),
+    min_change_pct: float = Query(9.5, ge=0, le=30, description="最小涨跌幅阈值(%)"),
+    limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
+    services: AppServices = Depends(get_services),
+):
+    """从全市场行情数据中筛选出涨停股。数据优先从本地文件读取。"""
+    rows, error = await services.collector.get_limit_up_from_market_list(
+        trade_date=trade_date,
+        market=market,
+        min_change_pct=min_change_pct,
+    )
+    if rows is None:
+        rows = []
+    filtered = [item for item in rows if _matches_query(item, q)]
+    filtered.sort(key=lambda x: float(x.get("change_pct") or 0), reverse=True)
+    total = len(filtered)
+    page = filtered[offset:offset + limit]
+    return LimitUpStockListResponse(
+        trade_date=trade_date,
+        market=market,
+        total=total,
+        limit=limit,
+        offset=offset,
+        items=[LimitUpStockItem(**item) for item in page],
+        error=error,
+    )
+
+
 @router.get("/limit-up", response_model=LimitUpStockListResponse)
 async def list_limit_up_stocks(
     trade_date: str = Query(default_factory=lambda: datetime.now().strftime("%Y-%m-%d")),

@@ -60,6 +60,13 @@ _DEFAULT_TASKS: list[dict] = [
         "enabled": False,
         "cron": "0 2 * * 1-5",
     },
+    {
+        "id": "market_list_refresh",
+        "name": "全市场行情刷新",
+        "description": "交易日自动刷新全市场股票行情数据，持久化到本地文件",
+        "enabled": True,
+        "cron": "10 15 * * 1-5",
+    },
 ]
 
 
@@ -208,7 +215,6 @@ class FundHoldingsHandler(TaskHandler):
         if not self.settings:
             return {"success": False, "message": "Settings not available"}
 
-        # Check if enabled and token exists
         if not getattr(self.settings, "fund_holdings_refresh_enabled", False):
             return {"success": True, "message": "Fund holdings refresh disabled"}
 
@@ -217,7 +223,6 @@ class FundHoldingsHandler(TaskHandler):
             return {"success": False, "message": "Tushare API key not configured"}
 
         try:
-            # Import here to avoid circular imports
             from src.data.fund_holdings_job import FundHoldingsRefreshJob
 
             holdings = []
@@ -245,6 +250,53 @@ class FundHoldingsHandler(TaskHandler):
             return {"success": False, "message": "Tushare not installed"}
         except Exception as e:
             logger.error("Scheduled fund holdings refresh failed: %s", e)
+            return {"success": False, "message": str(e)}
+
+
+class MarketListRefreshHandler(TaskHandler):
+    """Handler for daily market list data refresh (15:10 on trading days)."""
+
+    def __init__(self, settings: Any = None, collector: Any = None):
+        self.settings = settings
+        self.collector = collector
+
+    async def run(self) -> dict:
+        logger.info("Scheduled market list refresh triggered")
+
+        if not self.settings:
+            return {"success": False, "message": "Settings not available"}
+
+        try:
+            from datetime import datetime as _dt
+            from src.data.cache import DataCache
+            from src.data.collector import DataCollector
+
+            collector = self.collector
+            if collector is None:
+                cache = DataCache(self.settings)
+                await cache.init_db()
+                collector = DataCollector(self.settings, cache)
+
+            trade_date = _dt.now().strftime("%Y-%m-%d")
+            rows, err = await collector.get_market_list(trade_date=trade_date, refresh=True)
+            limit_up_rows, _ = await collector.get_limit_up_from_market_list(trade_date=trade_date)
+
+            count = len(rows) if rows else 0
+            limit_up_count = len(limit_up_rows) if limit_up_rows else 0
+            logger.info("Market list refresh completed: total=%d limit-up=%d", count, limit_up_count)
+
+            if err:
+                return {"success": False, "message": err, "total": count, "limit_up": limit_up_count}
+
+            return {
+                "success": True,
+                "message": f"Market list refreshed: {count} stocks, {limit_up_count} limit-up",
+                "total": count,
+                "limit_up": limit_up_count,
+                "trade_date": trade_date,
+            }
+        except Exception as e:
+            logger.error("Scheduled market list refresh failed: %s", e)
             return {"success": False, "message": str(e)}
 
 
@@ -300,6 +352,14 @@ class AnalysisScheduler:
             enabled=False,
             cron="0 2 * * 1-5",
             handler_factory=lambda: FundHoldingsHandler(self.settings, self.portfolio),
+        )
+        self._tasks["market_list_refresh"] = ScheduledTask(
+            id="market_list_refresh",
+            name="全市场行情刷新",
+            description="交易日自动刷新全市场股票行情数据，持久化到本地文件",
+            enabled=True,
+            cron="10 15 * * 1-5",
+            handler_factory=lambda: MarketListRefreshHandler(self.settings, self.collector),
         )
 
     async def load_tasks(self) -> list[dict]:

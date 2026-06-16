@@ -13,6 +13,7 @@ import {
   IconMenuFold,
   IconMenuUnfold,
   IconBook,
+  IconList,
 } from '@arco-design/web-react/icon'
 
 const { Sider, Header, Content } = ArcoLayout
@@ -21,6 +22,7 @@ const menuItems = [
   { key: '/', icon: IconHome, label: '首页' },
   { key: '/portfolio', icon: IconDashboard, label: '我的持仓' },
   { key: '/stock', icon: IconArrowRise, label: '股票详情' },
+  { key: '/stocks', icon: IconList, label: '股票列表' },
   { key: '/limit-up', icon: IconFire, label: '涨停池' },
   { key: '/sectors', icon: IconCompass, label: '今日方向' },
   { key: '/analysis', icon: IconRobot, label: 'AI分析' },
