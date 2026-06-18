@@ -312,6 +312,8 @@ class Settings(BaseSettings):
         "peer_industry_snapshot": ["eastmoney"],
         "announcements": ["ths", "cninfo"],
         "research_reports": ["eastmoney"],
+        "limit_up_stocks": ["eastmoney", "tdx", "sina", "tushare"],
+        "market_list": ["eastmoney", "tushare"],
     }
 
     # TradingAgents integration

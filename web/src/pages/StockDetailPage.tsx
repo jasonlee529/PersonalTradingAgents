@@ -209,12 +209,20 @@ export default function StockDetailPage() {
                   }
                   const num = typeof value === 'number' ? value : Number(value)
                   const color = key === 'rsi' ? (num > 70 ? 'var(--color-down)' : num < 30 ? 'var(--color-up)' : 'var(--text-muted)') : undefined
+                  // 根据指标类型确定小数位数
+                  const decimals = (() => {
+                    if (key === 'volume_ratio') return 2
+                    if (key === 'change_pct' || key === 'volatility_20' || key === 'trend_gap_20') return 2
+                    if (key === 'rsi' || key === 'cci' || key === 'wr' || key === 'kdj_k' || key === 'kdj_d' || key === 'kdj_j') return 2
+                    if (key === 'obv') return 0
+                    return 4
+                  })()
                   return (
                     <Col span={6} key={key}>
                       <div className="metric-card" style={{ padding: '16px 20px' }}>
                         <div className="metric-label">{labelMap[key] || key}</div>
                         <div className="metric-value" style={{ fontSize: 20, color }}>
-                          {Number.isFinite(num) ? num.toFixed(4) : String(value)}
+                          {Number.isFinite(num) ? num.toFixed(decimals) : String(value)}
                         </div>
                       </div>
                     </Col>

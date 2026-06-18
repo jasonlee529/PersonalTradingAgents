@@ -9,10 +9,11 @@ from src.data.sources.sina_source import SinaSource
 from src.data.sources.tencent_source import TencentSource
 from src.data.sources.tdx_source import TdxSource
 from src.data.sources.ths_source import THSSource
+from src.data.sources.tushare_source import TushareSource
 from src.data.sources.xueqiu_source import XueqiuSource
 
 __all__ = [
     "DataSource", "BaoStockSource", "BaiduSource",
     "CLSSource", "CninfoSource", "EastmoneySource", "IndicatorSource", "SinaSource",
-    "TencentSource", "TdxSource", "THSSource", "XueqiuSource",
+    "TencentSource", "TdxSource", "THSSource", "TushareSource", "XueqiuSource",
 ]

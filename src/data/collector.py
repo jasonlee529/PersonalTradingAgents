@@ -17,6 +17,7 @@ from src.data.sources.sina_source import SinaSource
 from src.data.sources.tencent_source import TencentSource
 from src.data.sources.tdx_source import TdxSource
 from src.data.sources.ths_source import THSSource
+from src.data.sources.tushare_source import TushareSource
 from src.data.sources.xueqiu_source import XueqiuSource
 from src.utils.ticker import detect_market
 
@@ -38,6 +39,7 @@ DOMESTIC_SOURCE_NAMES = {
     "baostock",
     "indicator",
     "xueqiu",
+    "tushare",
 }
 
 
@@ -59,6 +61,7 @@ class DataCollector:
             "baostock": BaoStockSource(),
             "indicator": IndicatorSource(settings),
             "xueqiu": XueqiuSource(settings),
+            "tushare": TushareSource(settings),
         }
         self._priority = getattr(settings, "data_source_priority", {})
         self._historical_store = None
@@ -484,11 +487,29 @@ class DataCollector:
             if local_data:
                 return local_data, ""
 
-        eastmoney = self._sources.get("eastmoney")
-        if eastmoney is None:
-            return None, "eastmoney 数据源未初始化"
+        # 按优先级尝试数据源
+        priority = self._domestic_priority("market_list", self._priority.get("market_list", []))
+        if not priority:
+            priority = ["eastmoney", "tushare"]
 
-        rows = await eastmoney.get_all_stock_quotes()
+        rows = None
+        last_error = ""
+        for source_name in priority:
+            source = self._sources.get(source_name)
+            if not source:
+                continue
+            try:
+                method = getattr(source, "get_all_stock_quotes", None)
+                if not method:
+                    continue
+                rows = await method()
+                if rows is not None and len(rows) > 0:
+                    logger.info("获取全市场股票行情成功: %s (%d stocks)", source_name, len(rows))
+                    break
+            except Exception as e:
+                last_error = str(e)
+                logger.warning("获取全市场股票行情失败 (%s): %s", source_name, e)
+
         if rows is None or len(rows) == 0:
             return None, "无法获取全市场股票行情"
 
@@ -518,10 +539,14 @@ class DataCollector:
         effective_date = trade_date or datetime.now().strftime("%Y-%m-%d")
         filtered = []
         for stock in rows:
-            # 市场筛选
-            if market == "sh" and not str(stock.get("symbol", "")).startswith("6"):
+            symbol = str(stock.get("symbol", ""))
+            # 过滤创业板股票（300、301开头）
+            if symbol.startswith(("300", "301")):
                 continue
-            if market == "sz" and not str(stock.get("symbol", "")).startswith(("0", "3")):
+            # 市场筛选
+            if market == "sh" and not symbol.startswith("6"):
+                continue
+            if market == "sz" and not symbol.startswith("0"):
                 continue
 
             # 涨停判定：is_limit_up=True 或涨跌幅 >= 阈值
@@ -559,7 +584,11 @@ class DataCollector:
     async def get_limit_up_stocks(
         self, trade_date: str = "", market: str = "all"
     ) -> tuple[Optional[list[dict]], str]:
-        """Returns (rows, error_msg). error_msg is empty on success."""
+        """从全市场股票列表中筛选涨幅超过9.98%的股票。
+
+        Returns:
+            (rows, error_msg). error_msg is empty on success.
+        """
         import os
         limit_up_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "data", "limit_up")
         os.makedirs(limit_up_dir, exist_ok=True)
@@ -571,33 +600,21 @@ class DataCollector:
                 logger.info("读取本地涨停池数据: %d stocks for %s", len(local_data), trade_date)
                 return self._filter_mainboard_limit_up(local_data, market), ""
 
-        # 1. 按照配置优先级获取数据: eastmoney > tdx > sina > tushare
-        errors = []
-        for source_name in ["eastmoney", "tdx", "sina", "tushare"]:
-            try:
-                if source_name == "tushare":
-                    rows, err = await self._fetch_limit_up_tushare(trade_date)
-                    if rows is not None:
-                        if trade_date:
-                            self._write_limit_up_to_file(trade_date, rows, limit_up_dir)
-                        return self._filter_mainboard_limit_up(rows, market), ""
-                    if err:
-                        errors.append(f"{source_name}: {err}")
-                else:
-                    source = self._sources.get(source_name)
-                    if source:
-                        rows = await source.get_limit_up_stocks(trade_date=trade_date, market=market)
-                        if rows is not None and len(rows) > 0:
-                            if trade_date:
-                                self._write_limit_up_to_file(trade_date, rows, limit_up_dir)
-                            return self._filter_mainboard_limit_up(rows, market), ""
-                        errors.append(f"{source_name}: 无数据")
-            except Exception as e:
-                errors.append(f"{source_name}: {e}")
-                logger.warning("get_limit_up_stocks failed for %s: %s", source_name, e)
+        # 1. 从全市场股票列表中筛选涨幅 >=9.98% 的股票
+        rows, err = await self.get_limit_up_from_market_list(
+            trade_date=trade_date,
+            market=market,
+            min_change_pct=9.98
+        )
 
-        # 所有数据源都失败
-        return [], "; ".join(errors) if errors else "数据源请求失败，无法获取涨停数据"
+        if rows is not None and len(rows) > 0:
+            if trade_date:
+                self._write_limit_up_to_file(trade_date, rows, limit_up_dir)
+            logger.info("从全市场数据筛选出 %d 只涨停股 (阈值 9.98%%)", len(rows))
+            return rows, ""
+
+        # 筛选失败
+        return [], err or "无法从全市场数据筛选涨停股"
 
     @staticmethod
     def _read_limit_up_from_file(trade_date: str, data_dir: str) -> Optional[list[dict]]:

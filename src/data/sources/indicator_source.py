@@ -151,7 +151,8 @@ class IndicatorSource(DataSource):
 
         if "volume_ratio" in indicators:
             vol_ma5 = volume.rolling(window=5).mean()
-            add("volume_ratio", volume.iloc[-1] / vol_ma5.iloc[-1])
+            if len(vol_ma5) > 0 and pd.notna(vol_ma5.iloc[-1]) and vol_ma5.iloc[-1] > 0:
+                add("volume_ratio", volume.iloc[-1] / vol_ma5.iloc[-1])
 
         if "change_pct" in indicators:
             add("change_pct", close.pct_change().iloc[-1] * 100)

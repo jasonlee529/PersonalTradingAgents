@@ -61,6 +61,11 @@ async def list_market_stocks(
         rows = []
 
     filtered = [item for item in rows if _matches_query(item, q)]
+    # 过滤掉创业板股票（300、301开头）
+    filtered = [
+        item for item in filtered
+        if not str(item.get("symbol", "")).startswith(("300", "301"))
+    ]
     if market == "sh":
         filtered = [item for item in filtered if str(item.get("symbol", "")).startswith("6")]
     elif market == "sz":
