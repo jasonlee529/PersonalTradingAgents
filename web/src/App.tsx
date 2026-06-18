@@ -8,6 +8,7 @@ const PortfolioPage = lazy(() => import('./pages/PortfolioPage'))
 const StockDetailPage = lazy(() => import('./pages/StockDetailPage'))
 const LimitUpPage = lazy(() => import('./pages/LimitUpPage'))
 const StockListPage = lazy(() => import('./pages/StockListPage'))
+const ChanlunBuySignalsPage = lazy(() => import('./pages/ChanlunBuySignalsPage'))
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage'))
 const AnalysisDetailPage = lazy(() => import('./pages/AnalysisDetailPage'))
 const RawSourcesPage = lazy(() => import('./pages/RawSourcesPage'))
@@ -49,6 +50,7 @@ function AppRoutes() {
         <Route path="/stock" element={<StockDetailPage />} />
         <Route path="/limit-up" element={<LimitUpPage />} />
         <Route path="/stocks" element={<StockListPage />} />
+<Route path="/chanlun" element={<ChanlunBuySignalsPage />} />
         <Route path="/analysis" element={<AnalysisPage />} />
         <Route path="/analysis/:jobId" element={<AnalysisDetailPage />} />
         <Route path="/sectors" element={<SectorsPage />} />

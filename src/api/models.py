@@ -102,6 +102,46 @@ class LimitUpStockListResponse(BaseModel):
     error: str = ""
 
 
+# --- Chanlun (缠论) ---
+
+class ChanlunBuySignalItem(BaseModel):
+    """缠论买入信号项"""
+    symbol: str
+    name: str = ""
+    market: str = ""
+    trade_date: str
+    signal_type: str = ""  # "type1" | "type2" | "type3"
+    signal_type_label: str = ""  # "一买" | "二买" | "三买"
+    price: Optional[float] = None
+    change_pct: Optional[float] = None
+    volume: Optional[int] = None
+    turnover: Optional[float] = None
+    turnover_rate: Optional[float] = None
+    # 缠论相关指标
+    pivot_level: Optional[str] = None  # 中枢级别
+    recent_pivot_high: Optional[float] = None  # 最近中枢高点
+    recent_pivot_low: Optional[float] = None  # 最近中枢低点
+    divergence_type: Optional[str] = None  # 背驰类型
+    macd_divergence: bool = False  # MACD背驰
+    kdj_divergence: bool = False  # KDJ背驰
+    rsi_divergence: bool = False  # RSI背驰
+    # 信号描述
+    description: str = ""
+    confidence_score: float = 0.0  # 置信度 0-1
+
+
+class ChanlunBuySignalListResponse(BaseModel):
+    """缠论买入信号列表响应"""
+    trade_date: str
+    market: str
+    signal_type: str
+    total: int
+    limit: int
+    offset: int
+    items: list[ChanlunBuySignalItem]
+    error: str = ""
+
+
 class KlineRecord(BaseModel):
     date: str
     open: float

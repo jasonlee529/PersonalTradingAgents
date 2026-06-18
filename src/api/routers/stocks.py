@@ -7,6 +7,7 @@ from src.api.models import (
     QuoteResponse, KlineResponse, KlineRecord, FundamentalsResponse,
     StockSnapshotResponse, NewsItem, AnnouncementItem, ResearchReportItem,
     IndicatorResponse, LimitUpStockItem, LimitUpStockListResponse,
+    ChanlunBuySignalItem, ChanlunBuySignalListResponse,
 )
 from src.data.collector import DEFAULT_KLINE_LIMIT
 
@@ -259,4 +260,42 @@ async def get_snapshot(symbol: str, services: AppServices = Depends(get_services
         news=[NewsItem(**i.model_dump()) for i in news],
         announcements=[AnnouncementItem(**i.model_dump()) for i in announcements],
         research_reports=[ResearchReportItem(**i.model_dump()) for i in reports],
+    )
+
+
+# ---- Chanlun (缠论) Buy Signals ----
+
+@router.get("/chanlun-buy-signals", response_model=ChanlunBuySignalListResponse)
+async def get_chanlun_buy_signals(
+    trade_date: str = Query(default_factory=lambda: datetime.now().strftime("%Y-%m-%d")),
+    market: str = Query("all", description="市场筛选: all | sh | sz"),
+    signal_type: str = Query("all", description="信号类型: all | type1 | type2 | type3"),
+    q: str = Query("", description="代码或名称搜索"),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    services = Depends(get_services),
+):
+    """获取缠论买入信号股票列表。"""
+    rows, error = await services.collector.get_chanlun_buy_signals(
+        trade_date=trade_date,
+        market=market,
+        signal_type=signal_type,
+    )
+    if rows is None:
+        rows = []
+
+    # 搜索过滤
+    filtered = [item for item in rows if _matches_query(item, q)]
+    total = len(filtered)
+    page = filtered[offset:offset + limit]
+
+    return ChanlunBuySignalListResponse(
+        trade_date=trade_date,
+        market=market,
+        signal_type=signal_type,
+        total=total,
+        limit=limit,
+        offset=offset,
+        items=[ChanlunBuySignalItem(**item) for item in page],
+        error=error,
     )

@@ -127,6 +127,55 @@ export const stockApi = {
   snapshot: (symbol: string) => api.get(`/stocks/${symbol}/snapshot`),
 }
 
+// Chanlun (缠论)
+export interface ChanlunBuySignalItem {
+  symbol: string
+  name: string
+  market: string
+  trade_date: string
+  signal_type: string
+  signal_type_label: string
+  price?: number | null
+  change_pct?: number | null
+  volume?: number | null
+  turnover?: number | null
+  turnover_rate?: number | null
+  pivot_level?: string | null
+  recent_pivot_high?: number | null
+  recent_pivot_low?: number | null
+  divergence_type?: string | null
+  macd_divergence: boolean
+  kdj_divergence: boolean
+  rsi_divergence: boolean
+  description: string
+  confidence_score: number
+}
+
+export interface ChanlunBuySignalListResponse {
+  trade_date: string
+  market: string
+  signal_type: string
+  total: number
+  limit: number
+  offset: number
+  items: ChanlunBuySignalItem[]
+  error?: string
+}
+
+export interface ChanlunBuySignalParams {
+  trade_date?: string
+  market?: string
+  signal_type?: string
+  q?: string
+  limit?: number
+  offset?: number
+}
+
+export const chanlunApi = {
+  getBuySignals: (params?: ChanlunBuySignalParams) =>
+    api.get<ChanlunBuySignalListResponse>('/stocks/chanlun-buy-signals', { params }),
+}
+
 export interface AnalysisStep {
   step_id: string
   label: string

@@ -765,3 +765,257 @@ class DataCollector:
             "timestamp": pd.Timestamp.now().isoformat(),
         }
 
+    # ---- Chanlun (缠论) Buy Signals ----
+
+    async def _detect_chanlun_signals_for_stock(
+        self, stock: dict, kline: list[dict]
+    ) -> list[dict]:
+        """检测单只股票的缠论买入信号。"""
+        signals = []
+        if not kline or len(kline) < 30:
+            return signals
+
+        symbol = stock.get("symbol", "")
+        name = stock.get("name", "")
+        market = stock.get("market", "sh" if str(symbol).startswith("6") else "sz")
+        trade_date = stock.get("trade_date", datetime.now().strftime("%Y-%m-%d"))
+
+        df = pd.DataFrame(kline)
+        if len(df) < 30:
+            return signals
+
+        # 确保数据按日期升序排列
+        df = df.sort_values("date").reset_index(drop=True)
+
+        # 计算基本技术指标
+        close_prices = df["close"].values
+        high_prices = df["high"].values
+        low_prices = df["low"].values
+        volumes = df["volume"].values
+
+        # 计算MACD
+        exp12 = df["close"].ewm(span=12, adjust=False).mean()
+        exp26 = df["close"].ewm(span=26, adjust=False).mean()
+        macd = exp12 - exp26
+        signal = macd.ewm(span=9, adjust=False).mean()
+        histogram = macd - signal
+
+        # 计算KDJ
+        low_min = df["low"].rolling(window=9).min()
+        high_max = df["high"].rolling(window=9).max()
+        rsv = (df["close"] - low_min) / (high_max - low_min) * 100
+        k = rsv.ewm(com=2, adjust=False).mean()
+        d = k.ewm(com=2, adjust=False).mean()
+        j = 3 * k - 2 * d
+
+        # 计算RSI
+        delta = df["close"].diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
+        rs = gain / loss
+        rsi = 100 - (100 / (1 + rs))
+
+        # 检测一买：下跌趋势背驰
+        # 简化版：检测近期低点抬高，且MACD底背离
+        if len(df) >= 60:
+            recent_df = df.tail(60).copy()
+            half_idx = len(recent_df) // 2
+            first_half = recent_df.iloc[:half_idx]
+            second_half = recent_df.iloc[half_idx:]
+
+            first_low = first_half["low"].min()
+            second_low = second_half["low"].min()
+            first_macd_low = macd.iloc[-60:-30].min() if len(macd) >= 60 else None
+            second_macd_low = macd.iloc[-30:].min() if len(macd) >= 30 else None
+
+            # 底背离条件：价格创新低但MACD不创新低
+            if (first_low is not None and second_low is not None and
+                first_macd_low is not None and second_macd_low is not None and
+                second_low < first_low and second_macd_low > first_macd_low):
+                # 一买信号
+                signals.append({
+                    "symbol": symbol,
+                    "name": name,
+                    "market": market,
+                    "trade_date": trade_date,
+                    "signal_type": "type1",
+                    "signal_type_label": "一买",
+                    "price": stock.get("price"),
+                    "change_pct": stock.get("change_pct"),
+                    "volume": stock.get("volume"),
+                    "turnover": stock.get("turnover"),
+                    "turnover_rate": stock.get("turnover_rate"),
+                    "pivot_level": "30F",
+                    "recent_pivot_high": float(recent_df["high"].max()),
+                    "recent_pivot_low": float(second_low),
+                    "divergence_type": "MACD底背离",
+                    "macd_divergence": True,
+                    "kdj_divergence": bool(k.iloc[-1] < 30),
+                    "rsi_divergence": bool(rsi.iloc[-1] < 30),
+                    "description": f"{name}({symbol}) 出现一买信号，MACD底背离",
+                    "confidence_score": 0.7,
+                })
+
+        # 检测二买：回调不创新低
+        # 简化版：近期有过一波上涨，回调低点高于前低
+        if len(df) >= 40:
+            recent_df = df.tail(40).copy()
+            # 检测是否有上涨趋势
+            mid_idx = len(recent_df) // 2
+            early_low = recent_df.iloc[:mid_idx]["low"].min()
+            later_low = recent_df.iloc[mid_idx:]["low"].min()
+            early_high = recent_df.iloc[:mid_idx]["high"].max()
+            later_high = recent_df.iloc[mid_idx:]["high"].max()
+
+            if (later_low > early_low and later_high > early_high and
+                k.iloc[-1] > d.iloc[-1] and k.iloc[-1] < 50):
+                signals.append({
+                    "symbol": symbol,
+                    "name": name,
+                    "market": market,
+                    "trade_date": trade_date,
+                    "signal_type": "type2",
+                    "signal_type_label": "二买",
+                    "price": stock.get("price"),
+                    "change_pct": stock.get("change_pct"),
+                    "volume": stock.get("volume"),
+                    "turnover": stock.get("turnover"),
+                    "turnover_rate": stock.get("turnover_rate"),
+                    "pivot_level": "5F",
+                    "recent_pivot_high": float(later_high),
+                    "recent_pivot_low": float(later_low),
+                    "divergence_type": "趋势确认",
+                    "macd_divergence": bool(histogram.iloc[-1] > 0),
+                    "kdj_divergence": bool(k.iloc[-1] > d.iloc[-1]),
+                    "rsi_divergence": bool(40 < rsi.iloc[-1] < 60),
+                    "description": f"{name}({symbol}) 出现二买信号，回调确认",
+                    "confidence_score": 0.65,
+                })
+
+        # 检测三买：突破回抽
+        # 简化版：价格突破近期高点后回踩确认
+        if len(df) >= 30:
+            recent_df = df.tail(30).copy()
+            pivot_high = recent_df.iloc[:-5]["high"].max()
+            current_price = close_prices[-1]
+            current_low = low_prices[-1]
+            prev_high = high_prices[-5:].max()
+
+            # 突破后回踩
+            if (pivot_high is not None and
+                current_price > pivot_high * 0.98 and
+                current_low > pivot_high * 0.95 and
+                prev_high > pivot_high):
+                signals.append({
+                    "symbol": symbol,
+                    "name": name,
+                    "market": market,
+                    "trade_date": trade_date,
+                    "signal_type": "type3",
+                    "signal_type_label": "三买",
+                    "price": stock.get("price"),
+                    "change_pct": stock.get("change_pct"),
+                    "volume": stock.get("volume"),
+                    "turnover": stock.get("turnover"),
+                    "turnover_rate": stock.get("turnover_rate"),
+                    "pivot_level": "30F",
+                    "recent_pivot_high": float(pivot_high),
+                    "recent_pivot_low": float(current_low),
+                    "divergence_type": "突破回抽",
+                    "macd_divergence": bool(macd.iloc[-1] > 0),
+                    "kdj_divergence": bool(k.iloc[-1] > 50),
+                    "rsi_divergence": bool(rsi.iloc[-1] > 50),
+                    "description": f"{name}({symbol}) 出现三买信号，突破回抽确认",
+                    "confidence_score": 0.75,
+                })
+
+        return signals
+
+    async def get_chanlun_buy_signals(
+        self, trade_date: str = "", market: str = "all", signal_type: str = "all"
+    ) -> tuple[Optional[list[dict]], str]:
+        """获取缠论买入信号股票列表。
+
+        Args:
+            trade_date: 交易日（YYYY-MM-DD），默认今日
+            market: 市场筛选 ('all' | 'sh' | 'sz')
+            signal_type: 信号类型 ('all' | 'type1' | 'type2' | 'type3')
+
+        Returns:
+            (list of signal dicts, error_msg)
+        """
+        effective_date = trade_date or datetime.now().strftime("%Y-%m-%d")
+
+        # 获取全市场股票数据
+        rows, err = await self.get_market_list(trade_date=trade_date)
+        if rows is None:
+            return [], err or "无法获取全市场数据"
+
+        all_signals = []
+
+        # 筛选符合基本条件的股票
+        candidate_stocks = []
+        for stock in rows:
+            symbol = str(stock.get("symbol", ""))
+            # 过滤创业板股票（300、301开头）
+            if symbol.startswith(("300", "301")):
+                continue
+            # 市场筛选
+            if market == "sh" and not symbol.startswith("6"):
+                continue
+            if market == "sz" and not symbol.startswith("0"):
+                continue
+            # 确保有基本数据
+            if not stock.get("price") or float(stock.get("price", 0)) <= 0:
+                continue
+            # 添加市场标识
+            stock["market"] = "sh" if symbol.startswith("6") else "sz"
+            stock["trade_date"] = effective_date
+            candidate_stocks.append(stock)
+
+        # 限制检测数量以提高性能（优先选择成交量大的股票）
+        candidate_stocks.sort(
+            key=lambda x: float(x.get("turnover") or 0),
+            reverse=True
+        )
+        candidate_stocks = candidate_stocks[:200]  # 先检查前200只
+
+        logger.info("开始检测 %d 只股票的缠论信号...", len(candidate_stocks))
+
+        # 逐个检测信号
+        import asyncio
+        semaphore = asyncio.Semaphore(10)  # 并发限制
+
+        async def _process_stock(stock):
+            async with semaphore:
+                try:
+                    symbol = stock.get("symbol", "")
+                    kline = await self.get_kline(symbol, limit=120)
+                    signals = await self._detect_chanlun_signals_for_stock(stock, kline)
+                    return signals
+                except Exception as e:
+                    logger.debug("检测 %s 缠论信号失败: %s", stock.get("symbol"), e)
+                    return []
+
+        # 并发处理
+        tasks = [_process_stock(stock) for stock in candidate_stocks]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        # 收集结果
+        for result in results:
+            if isinstance(result, list):
+                all_signals.extend(result)
+
+        # 按信号类型筛选
+        if signal_type != "all":
+            all_signals = [s for s in all_signals if s.get("signal_type") == signal_type]
+
+        # 按置信度排序
+        all_signals.sort(
+            key=lambda x: float(x.get("confidence_score", 0)),
+            reverse=True
+        )
+
+        logger.info("检测完成，共发现 %d 个缠论买入信号", len(all_signals))
+        return all_signals, ""
+
