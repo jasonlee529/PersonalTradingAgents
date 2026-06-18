@@ -55,6 +55,33 @@ def test_raw_portfolio_snapshot_source_kind_label(api_client):
     assert list_resp.json()[0]["source_kind_label"] == "持仓快照"
 
 
+def test_user_portfolio_snapshot_is_not_stock_scoped(api_client):
+    resp = api_client.post(
+        "/api/raw/sources",
+        json={
+            "source_kind": "portfolio_snapshot",
+            "origin": "user",
+            "title": "2026-06-18 持仓快照",
+            "markdown": "# 2026-06-18 持仓快照\n\n组合记录。",
+            "metadata": {
+                "trade_date": "2026-06-18",
+                "tags": ["portfolio_snapshot", "date/2026-06-18"],
+                "holdings_count": 4,
+            },
+        },
+    )
+    assert resp.status_code == 200
+    source = resp.json()
+    assert source["source_kind"] == "portfolio_snapshot"
+    assert source["symbol"] == ""
+    assert source["symbols"] == []
+    assert source["tags"] == ["portfolio_snapshot", "date/2026-06-18"]
+
+    stock_list_resp = api_client.get("/api/raw/sources", params={"symbol": "603738"})
+    assert stock_list_resp.status_code == 200
+    assert stock_list_resp.json() == []
+
+
 def test_raw_trade_log_updates_position(api_client):
     resp = api_client.post(
         "/api/raw/trade-log",

@@ -71,14 +71,6 @@ async def add_holding(body: HoldingCreate, services: AppServices = Depends(get_s
         await services.portfolio.set_position(
             holding.symbol, body.quantity or 0, Decimal(str(body.avg_cost or 0))
         )
-    if body.quantity > 0:
-        await services.trade_recorder.record_position_change(
-            symbol=holding.symbol,
-            old_quantity=0,
-            new_quantity=body.quantity,
-            price=body.avg_cost,
-            reason="建仓",
-        )
     # Auto-fetch initial price if available
     try:
         quote = await services.collector.get_quote(symbol)
@@ -109,7 +101,6 @@ async def update_position(
     services: AppServices = Depends(get_services),
 ):
     old_pos = await services.portfolio.get_position(symbol)
-    old_qty = old_pos.quantity if old_pos else 0
     from decimal import Decimal
     pos = Position(
         symbol=symbol,
@@ -126,13 +117,6 @@ async def update_position(
         pos,
         user_adjusted=True,
         adjustment_reason=body.override_reason or "用户手动修改",
-    )
-    await services.trade_recorder.record_position_change(
-        symbol=symbol,
-        old_quantity=old_qty,
-        new_quantity=body.quantity,
-        price=body.avg_cost,
-        reason=body.override_reason or "用户手动修改持仓",
     )
     return {"symbol": symbol, "status": "updated"}
 

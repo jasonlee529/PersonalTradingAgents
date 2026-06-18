@@ -96,14 +96,14 @@ export default function PortfolioSnapshotPage() {
 
   const saveMutation = useMutation({
     mutationFn: () => rawApi.create({
-      source_kind: 'manual_source',
+      source_kind: 'portfolio_snapshot',
       origin: 'user',
       title: `${snapshotDate} 持仓快照`,
       markdown,
       metadata: {
         trade_date: snapshotDate,
-        symbols: holdings.map((row) => row.holding.symbol),
-        tags: ['portfolio_snapshot', `date/${snapshotDate}`, ...holdings.map((row) => `stock/${row.holding.symbol}`)],
+        tags: ['portfolio_snapshot', `date/${snapshotDate}`],
+        holdings_count: holdings.length,
         operation_note: operationNote,
       },
     }),

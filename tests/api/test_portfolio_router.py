@@ -33,6 +33,29 @@ def test_add_and_list_holding(client):
     assert holdings[0]["holding"]["symbol"] == "600519"
 
 
+def test_position_edits_do_not_generate_daily_trade_log(client):
+    resp = client.post("/api/portfolio/holdings", json={
+        "symbol": "600519", "name": "贵州茅台", "market": "CN",
+        "quantity": 100, "avg_cost": 1500.0,
+    })
+    assert resp.status_code == 200
+
+    resp = client.patch("/api/portfolio/holdings/600519/position", json={
+        "quantity": 120,
+        "avg_cost": 1490.0,
+        "current_price": 1510.0,
+    })
+    assert resp.status_code == 200
+
+    raw_resp = client.get("/api/raw/sources", params={"source_kind": "daily_trade_log"})
+    assert raw_resp.status_code == 200
+    assert raw_resp.json() == []
+
+    trades_resp = client.get("/api/portfolio/trades")
+    assert trades_resp.status_code == 200
+    assert trades_resp.json() == []
+
+
 def test_list_holdings_does_not_resolve_names_from_quote(client):
     client.post("/api/portfolio/holdings", json={
         "symbol": "600519", "name": "贵州茅台", "market": "CN",
