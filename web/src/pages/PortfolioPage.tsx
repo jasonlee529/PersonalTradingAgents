@@ -44,7 +44,6 @@ export default function PortfolioPage() {
   const [editingSymbol, setEditingSymbol] = useState<string | null>(null)
   const [editQty, setEditQty] = useState('')
   const [editCost, setEditCost] = useState('')
-  const [editPrice, setEditPrice] = useState('')
 
   const { data } = useQuery({
     queryKey: ['holdings'],
@@ -89,7 +88,6 @@ export default function PortfolioPage() {
       setEditingSymbol(null)
       setEditQty('')
       setEditCost('')
-      setEditPrice('')
       queryClient.invalidateQueries({ queryKey: ['holdings'] })
     },
     onError: () => Message.error('更新失败'),
@@ -99,20 +97,17 @@ export default function PortfolioPage() {
     setEditingSymbol(row.holding.symbol)
     setEditQty(String(row.position?.quantity ?? 0))
     setEditCost(row.position?.avg_cost != null ? String(row.position.avg_cost) : '')
-    setEditPrice(row.position?.current_price != null ? String(row.position.current_price) : '')
   }
 
   const cancelEdit = () => {
     setEditingSymbol(null)
     setEditQty('')
     setEditCost('')
-    setEditPrice('')
   }
 
   const saveEdit = (symbol: string) => {
     const quantity = Number.parseInt(editQty, 10)
     const avgCost = Number.parseFloat(editCost)
-    const currentPrice = editPrice.trim() ? Number.parseFloat(editPrice) : null
     if (Number.isNaN(quantity) || quantity < 0) {
       Message.warning('数量不合法')
       return
@@ -121,11 +116,7 @@ export default function PortfolioPage() {
       Message.warning('成本价不合法')
       return
     }
-    if (currentPrice != null && (Number.isNaN(currentPrice) || currentPrice < 0)) {
-      Message.warning('当前价不合法')
-      return
-    }
-    updatePositionMutation.mutate({ symbol, quantity, avg_cost: avgCost, current_price: currentPrice })
+    updatePositionMutation.mutate({ symbol, quantity, avg_cost: avgCost })
   }
 
   const columns = [
@@ -173,9 +164,7 @@ export default function PortfolioPage() {
       title: '当前价',
       dataIndex: 'current_price',
       width: 110,
-      render: (_: unknown, row: HoldingDetail) => editingSymbol === row.holding.symbol ? (
-        <Input type="number" step={0.001} size="mini" value={editPrice} onChange={setEditPrice} style={{ width: 96, fontFamily: 'var(--font-mono)' }} />
-      ) : (
+      render: (_: unknown, row: HoldingDetail) => (
         <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{formatNumber(row.position?.current_price, 3)}</span>
       ),
     },
