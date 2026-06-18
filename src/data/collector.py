@@ -248,6 +248,32 @@ class DataCollector:
             return "sz"
         return None
 
+    @staticmethod
+    def _infer_market(symbol: str) -> str:
+        """根据股票代码推断所属市场。
+
+        规则（A 股六位数代码）：
+        - ``6`` 开头 → 上海交易所（sh），含主板/科创板
+        - ``0`` 或 ``3`` 开头 → 深圳交易所（sz），含主板/中小板/创业板
+        - ``4`` / ``8`` / ``9`` 开头 → 北京交易所（bj），含北交所股票
+        - 其他 → 默认 ``"sz"``
+
+        >>> DataCollector._infer_market("600519")
+        'sh'
+        >>> DataCollector._infer_market("000001")
+        'sz'
+        >>> DataCollector._infer_market("830799")
+        'bj'
+        """
+        code = str(symbol or "").strip().zfill(6)
+        if code.startswith("6"):
+            return "sh"
+        if code.startswith(("0", "3")):
+            return "sz"
+        if code.startswith(("4", "8", "9")):
+            return "bj"
+        return "sz"
+
     @classmethod
     def _filter_mainboard_limit_up(cls, rows: list[dict], market: str = "all") -> list[dict]:
         market = (market or "all").lower()
@@ -544,9 +570,12 @@ class DataCollector:
             if symbol.startswith(("300", "301")):
                 continue
             # 市场筛选
-            if market == "sh" and not symbol.startswith("6"):
+            inferred_market = self._infer_market(symbol)
+            if market == "sh" and inferred_market != "sh":
                 continue
-            if market == "sz" and not symbol.startswith("0"):
+            if market == "sz" and inferred_market != "sz":
+                continue
+            if market == "bj" and inferred_market != "bj":
                 continue
 
             # 涨停判定：is_limit_up=True 或涨跌幅 >= 阈值
@@ -678,7 +707,7 @@ class DataCollector:
                 items.append({
                     "symbol": code,
                     "name": str(row.get("name") or ""),
-                    "market": "sh" if code.startswith("6") else "sz",
+                    "market": self._infer_market(code),
                     "trade_date": trade_date,
                     "price": self._safe_float(row.get("close")),
                     "change_pct": self._safe_float(row.get("pct_chg")),
@@ -777,7 +806,7 @@ class DataCollector:
 
         symbol = stock.get("symbol", "")
         name = stock.get("name", "")
-        market = stock.get("market", "sh" if str(symbol).startswith("6") else "sz")
+        market = stock.get("market", self._infer_market(symbol))
         trade_date = stock.get("trade_date", datetime.now().strftime("%Y-%m-%d"))
 
         df = pd.DataFrame(kline)
@@ -825,8 +854,11 @@ class DataCollector:
 
             first_low = first_half["low"].min()
             second_low = second_half["low"].min()
-            first_macd_low = macd.iloc[-60:-30].min() if len(macd) >= 60 else None
-            second_macd_low = macd.iloc[-30:].min() if len(macd) >= 30 else None
+            # 使用 recent_df 对齐后的 MACD 切片（len(recent_df)==60），
+            # 避免 macd.iloc[-60:-30] 与 recent_df.iloc[:30] 因全量/局部长度不一致导致错位
+            recent_macd = macd.tail(len(recent_df)) if len(macd) >= len(recent_df) else macd
+            first_macd_low = recent_macd.iloc[:half_idx].min() if len(recent_macd) >= half_idx else None
+            second_macd_low = recent_macd.iloc[half_idx:].min() if len(recent_macd) > half_idx else None
 
             # 底背离条件：价格创新低但MACD不创新低
             if (first_low is not None and second_low is not None and
@@ -961,15 +993,18 @@ class DataCollector:
             if symbol.startswith(("300", "301")):
                 continue
             # 市场筛选
-            if market == "sh" and not symbol.startswith("6"):
+            inferred_market = self._infer_market(symbol)
+            if market == "sh" and inferred_market != "sh":
                 continue
-            if market == "sz" and not symbol.startswith("0"):
+            if market == "sz" and inferred_market != "sz":
+                continue
+            if market == "bj" and inferred_market != "bj":
                 continue
             # 确保有基本数据
             if not stock.get("price") or float(stock.get("price", 0)) <= 0:
                 continue
             # 添加市场标识
-            stock["market"] = "sh" if symbol.startswith("6") else "sz"
+            stock["market"] = inferred_market
             stock["trade_date"] = effective_date
             candidate_stocks.append(stock)
 

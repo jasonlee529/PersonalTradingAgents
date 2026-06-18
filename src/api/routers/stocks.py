@@ -42,10 +42,22 @@ class MarketListResponse(dict):
     pass
 
 
+def _infer_market_from_symbol(symbol: str) -> str:
+    """从代码推断市场，与 collector._infer_market 保持一致。"""
+    code = str(symbol or "").strip().zfill(6)
+    if code.startswith("6"):
+        return "sh"
+    if code.startswith(("0", "3")):
+        return "sz"
+    if code.startswith(("4", "8", "9")):
+        return "bj"
+    return "sz"
+
+
 @router.get("/market-list")
 async def list_market_stocks(
     trade_date: str = Query(default_factory=lambda: datetime.now().strftime("%Y-%m-%d")),
-    market: str = Query("all", description="市场筛选: all | sh | sz"),
+    market: str = Query("all", description="市场筛选: all | sh | sz | bj"),
     q: str = Query("", description="代码或名称搜索"),
     sort: str = Query("change_pct_desc", description="排序: change_pct_desc/asc, turnover_desc/asc, price_desc/asc"),
     limit: int = Query(200, ge=1, le=5000),
@@ -67,10 +79,11 @@ async def list_market_stocks(
         item for item in filtered
         if not str(item.get("symbol", "")).startswith(("300", "301"))
     ]
-    if market == "sh":
-        filtered = [item for item in filtered if str(item.get("symbol", "")).startswith("6")]
-    elif market == "sz":
-        filtered = [item for item in filtered if not str(item.get("symbol", "")).startswith("6")]
+    if market in ("sh", "sz", "bj"):
+        filtered = [
+            item for item in filtered
+            if _infer_market_from_symbol(str(item.get("symbol", ""))) == market
+        ]
 
     sort_parts = sort.split("_")
     sort_key_base = "_".join(sort_parts[:-1])
@@ -268,7 +281,7 @@ async def get_snapshot(symbol: str, services: AppServices = Depends(get_services
 @router.get("/chanlun-buy-signals", response_model=ChanlunBuySignalListResponse)
 async def get_chanlun_buy_signals(
     trade_date: str = Query(default_factory=lambda: datetime.now().strftime("%Y-%m-%d")),
-    market: str = Query("all", description="市场筛选: all | sh | sz"),
+    market: str = Query("all", description="市场筛选: all | sh | sz | bj"),
     signal_type: str = Query("all", description="信号类型: all | type1 | type2 | type3"),
     q: str = Query("", description="代码或名称搜索"),
     limit: int = Query(100, ge=1, le=500),
