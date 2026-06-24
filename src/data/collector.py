@@ -89,17 +89,17 @@ class DataCollector:
         priority = self._domestic_priority(data_type, self._priority.get(data_type, []))
         if not priority:
             if data_type == "quote":
-                priority = ["tencent", "eastmoney", "sina", "baostock"]
+                priority = ["tushare", "tencent", "eastmoney", "sina", "baostock"]
             elif data_type == "kline":
-                priority = ["sina", "eastmoney", "tencent", "baostock"]
+                priority = ["tushare", "sina", "eastmoney", "tencent", "baostock"]
             elif data_type == "fundamentals":
-                priority = ["tencent", "eastmoney", "sina"]
+                priority = ["tushare", "tencent", "eastmoney", "sina"]
             elif data_type == "announcements":
                 priority = ["ths", "cninfo"]
             elif data_type == "research_reports":
                 priority = ["eastmoney"]
             elif data_type == "limit_up_stocks":
-                priority = ["eastmoney", "tdx", "sina", "tushare"]
+                priority = ["tushare", "eastmoney", "tdx", "sina"]
             else:
                 priority = []
 
@@ -333,7 +333,7 @@ class DataCollector:
 
         priority = self._domestic_priority("quote", self._priority.get("quote", []))
         if not priority:
-            priority = ["tencent", "eastmoney", "sina", "baostock"]
+            priority = ["tushare", "tencent", "eastmoney", "sina", "baostock"]
 
         merged = dict(cached or {})
         for source_name in priority:
@@ -516,7 +516,7 @@ class DataCollector:
         # 按优先级尝试数据源
         priority = self._domestic_priority("market_list", self._priority.get("market_list", []))
         if not priority:
-            priority = ["eastmoney", "tushare"]
+            priority = ["tushare", "eastmoney"]
 
         rows = None
         last_error = ""

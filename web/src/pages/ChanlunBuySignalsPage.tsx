@@ -73,6 +73,7 @@ export default function ChanlunBuySignalsPage() {
       dataIndex: 'symbol',
       width: 160,
       fixed: 'left' as const,
+      sorter: (a: ChanlunBuySignalItem, b: ChanlunBuySignalItem) => a.symbol.localeCompare(b.symbol),
       render: (_: unknown, item: ChanlunBuySignalItem) => (
         <Button
           type="text"
@@ -87,6 +88,7 @@ export default function ChanlunBuySignalsPage() {
       title: '信号类型',
       dataIndex: 'signal_type_label',
       width: 100,
+      sorter: (a: ChanlunBuySignalItem, b: ChanlunBuySignalItem) => a.signal_type.localeCompare(b.signal_type),
       render: (_: unknown, item: ChanlunBuySignalItem) => (
         <Tag color={getSignalTypeTagColor(item.signal_type)}>
           {item.signal_type_label}
@@ -97,6 +99,7 @@ export default function ChanlunBuySignalsPage() {
       title: '市场',
       dataIndex: 'market',
       width: 80,
+      sorter: (a: ChanlunBuySignalItem, b: ChanlunBuySignalItem) => a.market.localeCompare(b.market),
       render: (value: string) => (
         <Tag color={value === 'sh' ? 'red' : 'arcoblue'}>
           {value === 'sh' ? '沪市' : '深市'}
@@ -107,12 +110,15 @@ export default function ChanlunBuySignalsPage() {
       title: '最新价',
       dataIndex: 'price',
       width: 90,
+      sorter: (a: ChanlunBuySignalItem, b: ChanlunBuySignalItem) => (a.price ?? 0) - (b.price ?? 0),
       render: (value?: number) => displayNumber(value),
     },
     {
       title: '涨跌幅',
       dataIndex: 'change_pct',
       width: 100,
+      sorter: (a: ChanlunBuySignalItem, b: ChanlunBuySignalItem) => (a.change_pct ?? 0) - (b.change_pct ?? 0),
+      defaultSortOrder: 'descend' as const,
       render: (value?: number) => {
         const num = Number(value)
         const color = num > 0 ? 'var(--color-up)' : num < 0 ? 'var(--color-down)' : 'inherit'
@@ -123,29 +129,34 @@ export default function ChanlunBuySignalsPage() {
       title: '成交额',
       dataIndex: 'turnover',
       width: 120,
+      sorter: (a: ChanlunBuySignalItem, b: ChanlunBuySignalItem) => (a.turnover ?? 0) - (b.turnover ?? 0),
       render: (value?: number) => displayAmount(value),
     },
     {
       title: '换手率',
       dataIndex: 'turnover_rate',
       width: 90,
+      sorter: (a: ChanlunBuySignalItem, b: ChanlunBuySignalItem) => (a.turnover_rate ?? 0) - (b.turnover_rate ?? 0),
       render: (value?: number) => (value === null || value === undefined) ? '-' : `${displayNumber(value)}%`,
     },
     {
       title: '置信度',
       dataIndex: 'confidence_score',
       width: 100,
+      sorter: (a: ChanlunBuySignalItem, b: ChanlunBuySignalItem) => a.confidence_score - b.confidence_score,
       render: (_: unknown, item: ChanlunBuySignalItem) => getConfidenceBadge(item.confidence_score),
     },
     {
       title: '中枢级别',
       dataIndex: 'pivot_level',
       width: 90,
+      sorter: (a: ChanlunBuySignalItem, b: ChanlunBuySignalItem) => String(a.pivot_level ?? '').localeCompare(String(b.pivot_level ?? '')),
     },
     {
       title: '背离类型',
       dataIndex: 'divergence_type',
       width: 130,
+      sorter: (a: ChanlunBuySignalItem, b: ChanlunBuySignalItem) => String(a.divergence_type ?? '').localeCompare(String(b.divergence_type ?? '')),
     },
     {
       title: '技术指标',

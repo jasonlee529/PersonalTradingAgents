@@ -289,11 +289,11 @@ class Settings(BaseSettings):
     analysis_timeout_seconds: int = 600  # 10 minutes
 
     # Data source priority (fallback chain per data type)
-    # Priority: sina/eastmoney/tencent > baostock
+    # 主数据源: tushare, 其余为补充/降级
     data_source_priority: dict[str, list[str]] = {
-        "quote": ["tencent", "eastmoney", "sina", "baostock"],
-        "kline": ["sina", "eastmoney", "tencent", "baostock"],
-        "fundamentals": ["tencent", "eastmoney", "sina"],
+        "quote": ["tushare", "tencent", "eastmoney", "sina", "baostock"],
+        "kline": ["tushare", "sina", "eastmoney", "tencent", "baostock"],
+        "fundamentals": ["tushare", "tencent", "eastmoney", "sina"],
         "news": ["xueqiu", "eastmoney", "sina"],
         "global_news": ["eastmoney", "cls"],
         "balance_sheet": ["sina", "eastmoney"],
@@ -312,8 +312,8 @@ class Settings(BaseSettings):
         "peer_industry_snapshot": ["eastmoney"],
         "announcements": ["ths", "cninfo"],
         "research_reports": ["eastmoney"],
-        "limit_up_stocks": ["eastmoney", "tdx", "sina", "tushare"],
-        "market_list": ["eastmoney", "tushare"],
+        "limit_up_stocks": ["tushare", "eastmoney", "tdx", "sina"],
+        "market_list": ["tushare", "eastmoney"],
     }
 
     # TradingAgents integration

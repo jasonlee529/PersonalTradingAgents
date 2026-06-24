@@ -53,12 +53,14 @@ class TushareSource(DataSource):
         return f"{code}.SZ"
 
     @staticmethod
-    def _safe_float(value) -> Optional[float]:
+    def _safe_float(value, factor: float = 1.0) -> Optional[float]:
         try:
             if value is None or value == "":
                 return None
             f = float(value)
-            return f if f == f else None  # NaN check
+            if f != f:  # NaN check
+                return None
+            return f * factor
         except (TypeError, ValueError):
             return None
 
@@ -92,7 +94,7 @@ class TushareSource(DataSource):
                     "open": self._safe_float(row.get("open")),
                     "prev_close": self._safe_float(row.get("pre_close")),
                     "volume": self._safe_int(row.get("vol")),
-                    "turnover": self._safe_float(row.get("amount")),
+                    "turnover": self._safe_float(row.get("amount"), 1000),  # 千元 → 元
                     "change_pct": self._safe_float(row.get("pct_chg")),
                     "source": self.name,
                 }
@@ -138,7 +140,7 @@ class TushareSource(DataSource):
                         "high": self._safe_float(row.get("high")),
                         "low": self._safe_float(row.get("low")),
                         "volume": self._safe_int(row.get("vol")),
-                        "turnover": self._safe_float(row.get("amount")),
+                        "turnover": self._safe_float(row.get("amount"), 1000),  # 千元 → 元
                         "change_pct": self._safe_float(row.get("pct_chg")),
                     })
                 return results
@@ -254,7 +256,7 @@ class TushareSource(DataSource):
                         "change_pct": pct_chg or 0.0,
                         "change_amount": self._safe_float(row.get("change")),
                         "volume": self._safe_int(row.get("vol")),
-                        "turnover": self._safe_float(row.get("amount")),
+                        "turnover": self._safe_float(row.get("amount"), 1000),  # 千元 → 元
                         "high": self._safe_float(row.get("high")),
                         "low": self._safe_float(row.get("low")),
                         "open": self._safe_float(row.get("open")),
@@ -319,11 +321,11 @@ class TushareSource(DataSource):
                         "price": self._safe_float(row.get("close")),
                         "change_pct": self._safe_float(row.get("pct_chg")),
                         "volume": None,
-                        "turnover": self._safe_float(row.get("fd_amount")),
+                        "turnover": self._safe_float(row.get("fd_amount"), 10000),  # 万元 → 元
                         "turnover_rate": self._safe_float(row.get("fl_ratio")),
                         "first_limit_up_time": str(row.get("first_time", "")) or None,
                         "last_limit_up_time": str(row.get("last_time", "")) or None,
-                        "seal_amount": self._safe_float(row.get("fd_amount")),
+                        "seal_amount": self._safe_float(row.get("fd_amount"), 10000),  # 万元 → 元
                         "consecutive_days": self._safe_int(row.get("open_times")),
                         "reason": "",
                         "source": self.name,

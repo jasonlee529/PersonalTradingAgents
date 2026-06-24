@@ -218,7 +218,12 @@ export default function PortfolioPage() {
 
   const columns = [
     { title: '代码', dataIndex: 'symbol', width: 80, render: (_: unknown, row: HoldingDetail) => (
-      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 13, color: 'var(--text-primary)' }}>{row.holding.symbol}</span>
+      <span
+        style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: 13, color: 'rgb(var(--primary-6))', cursor: 'pointer', textDecoration: 'none' }}
+        onClick={(e) => { e.stopPropagation(); navigate(`/stock?symbol=${row.holding.symbol}`) }}
+        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.textDecoration = 'underline' }}
+        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.textDecoration = 'none' }}
+      >{row.holding.symbol}</span>
     )},
     { title: '名称', dataIndex: 'name', width: 100, render: (_: unknown, row: HoldingDetail) => (
       <span style={{ fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'block' }} title={row.holding.name}>{row.holding.name}</span>
@@ -394,7 +399,7 @@ export default function PortfolioPage() {
             onRow={(record: HoldingDetail) => ({
               onClick: () => {
                 if (editingSymbol) return
-                setSelectedSymbol(record.holding.symbol)
+                navigate(`/stock?symbol=${record.holding.symbol}`)
               },
               style: { cursor: editingSymbol ? 'default' : 'pointer' },
             })}
