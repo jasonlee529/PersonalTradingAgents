@@ -10,6 +10,7 @@ from src.api.dependencies import AppServices
 from src.api.routers import (
     analysis,
     auth,
+    limit_up_analysis,
     portfolio,
     raw,
     sectors,
@@ -89,6 +90,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(portfolio.router, prefix="/api")
     app.include_router(stocks.router, prefix="/api")
     app.include_router(analysis.router, prefix="/api")
+    app.include_router(limit_up_analysis.router, prefix="/api")
     app.include_router(raw.router, prefix="/api")
     app.include_router(wiki.router, prefix="/api")
     app.include_router(settings_router.router, prefix="/api")

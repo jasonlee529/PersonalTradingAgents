@@ -15,6 +15,7 @@ import {
   IconBook,
   IconList,
   IconStar,
+  IconStorage,
 } from '@arco-design/web-react/icon'
 
 const { Sider, Header, Content } = ArcoLayout
@@ -25,6 +26,7 @@ const menuItems = [
   { key: '/stock', icon: IconArrowRise, label: '股票详情' },
   { key: '/stocks', icon: IconList, label: '股票列表' },
   { key: '/limit-up', icon: IconFire, label: '涨停池' },
+  { key: '/limit-up-analysis', icon: IconStorage, label: '涨停分析' },
   { key: '/chanlun', icon: IconStar, label: '缠论信号' },
   { key: '/sectors', icon: IconCompass, label: '今日方向' },
   { key: '/analysis', icon: IconRobot, label: 'AI分析' },

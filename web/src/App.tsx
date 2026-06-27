@@ -7,6 +7,7 @@ const HomePage = lazy(() => import('./pages/HomePage'))
 const PortfolioPage = lazy(() => import('./pages/PortfolioPage'))
 const StockDetailPage = lazy(() => import('./pages/StockDetailPage'))
 const LimitUpPage = lazy(() => import('./pages/LimitUpPage'))
+const LimitUpAnalysisPage = lazy(() => import('./pages/LimitUpAnalysisPage'))
 const StockListPage = lazy(() => import('./pages/StockListPage'))
 const ChanlunBuySignalsPage = lazy(() => import('./pages/ChanlunBuySignalsPage'))
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage'))
@@ -49,6 +50,7 @@ function AppRoutes() {
         <Route path="/portfolio" element={<PortfolioPage />} />
         <Route path="/stock" element={<StockDetailPage />} />
         <Route path="/limit-up" element={<LimitUpPage />} />
+        <Route path="/limit-up-analysis" element={<LimitUpAnalysisPage />} />
         <Route path="/stocks" element={<StockListPage />} />
 <Route path="/chanlun" element={<ChanlunBuySignalsPage />} />
         <Route path="/analysis" element={<AnalysisPage />} />
