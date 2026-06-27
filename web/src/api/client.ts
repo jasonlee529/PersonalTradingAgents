@@ -176,6 +176,153 @@ export const chanlunApi = {
     api.get<ChanlunBuySignalListResponse>('/stocks/chanlun-buy-signals', { params }),
 }
 
+// Strategies (量化策略)
+export interface StrategyParamInfo {
+  name: string
+  default: number | string | boolean
+  description: string
+}
+
+export interface StrategyInfo {
+  id: string
+  name: string
+  description: string
+  available: boolean
+  params: StrategyParamInfo[]
+}
+
+export interface StrategyListResponse {
+  strategies: StrategyInfo[]
+}
+
+export interface StrategyMatchItem {
+  symbol: string
+  name: string
+  market: string
+  trade_date: string
+  strategy_id: string
+  strategy_name: string
+  rally_pct?: number | null
+  peak_price?: number | null
+  peak_date?: string | null
+  ma_period?: number | null
+  touch_date?: string | null
+  latest_price?: number | null
+  latest_volume?: number | null
+  rally_avg_volume?: number | null
+  pullback_avg_volume?: number | null
+  contraction_ratio?: number | null
+  expansion_ratio?: number | null
+  bounce_up: boolean
+  description: string
+}
+
+export interface StrategyScanResponse {
+  strategy_id: string
+  trade_date: string
+  market: string
+  total: number
+  limit: number
+  offset: number
+  items: StrategyMatchItem[]
+  error?: string
+}
+
+export interface StrategyScanParams {
+  trade_date?: string
+  market?: string
+  q?: string
+  limit?: number
+  offset?: number
+  rally_days?: number
+  min_rally_pct?: number
+  ma_period?: number
+  pullback_tolerance?: number
+  contraction_ratio?: number
+  expansion_ratio?: number
+  min_pullback_days?: number
+  require_bounce_up?: boolean
+  max_stocks?: number
+}
+
+export const strategyApi = {
+  list: () => api.get<StrategyListResponse>('/strategies'),
+  scan: (strategyId: string, params?: StrategyScanParams) =>
+    api.get<StrategyScanResponse>(`/strategies/${encodeURIComponent(strategyId)}/scan`, { params }),
+}
+
+// Backtest (回测)
+export interface BacktestRequest {
+  strategy_id: string
+  start_date?: string
+  end_date?: string
+  symbols?: string[]
+  max_universe?: number
+  market?: string
+  initial_capital?: number
+  kline_limit?: number
+  strategy_params?: Record<string, unknown>
+  stop_loss_type?: string
+  stop_loss_pct?: number
+  max_position_pct?: number
+  max_holdings?: number
+  slippage?: number
+  commission_rate?: number
+  stamp_tax_rate?: number
+}
+
+export interface BacktestTradeItem {
+  symbol: string
+  name: string
+  action: string
+  date: string
+  price: number
+  shares: number
+  amount: number
+  cost: number
+  pnl: number
+  pnl_pct: number
+  holding_days: number
+  reason: string
+}
+
+export interface BacktestEquityPoint {
+  date: string
+  equity: number
+  cash: number
+  holdings_value: number
+  positions: number
+}
+
+export interface BacktestMetrics {
+  initial_capital: number
+  final_equity: number
+  total_return_pct: number
+  annualized_return_pct: number
+  max_drawdown_pct: number
+  volatility_pct: number
+  total_trades: number
+  win_rate_pct: number
+  profit_loss_ratio: number
+  avg_holding_days: number
+  buy_count: number
+  sell_count: number
+}
+
+export interface BacktestResponse {
+  strategy_id: string
+  universe_size: number
+  trading_days: number
+  metrics: BacktestMetrics
+  trades: BacktestTradeItem[]
+  equity_curve: BacktestEquityPoint[]
+  error: string
+}
+
+export const backtestApi = {
+  run: (data: BacktestRequest) => api.post<BacktestResponse>('/strategies/backtest', data),
+}
+
 export interface AnalysisStep {
   step_id: string
   label: string

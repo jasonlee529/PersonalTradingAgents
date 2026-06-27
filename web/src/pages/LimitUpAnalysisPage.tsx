@@ -234,6 +234,9 @@ function getTopRankOption(data: RankingItem[]): EChartsOption {
 
 // 每日涨停趋势图配置
 function getDailyTrendOption(data: TrendResponse): EChartsOption {
+  // 反转数组，使时间从左到右流动（左旧右新）
+  const dates = [...data.dates].reverse()
+  const counts = [...data.counts].reverse()
   return {
     tooltip: {
       trigger: 'axis',
@@ -245,7 +248,7 @@ function getDailyTrendOption(data: TrendResponse): EChartsOption {
     grid: { left: '3%', right: '4%', bottom: '12%', containLabel: true },
     xAxis: {
       type: 'category',
-      data: data.dates,
+      data: dates,
       axisLabel: {
         fontSize: 10,
         rotate: 45,
@@ -264,7 +267,7 @@ function getDailyTrendOption(data: TrendResponse): EChartsOption {
       {
         name: '涨停数量',
         type: 'line',
-        data: data.counts,
+        data: counts,
         smooth: true,
         symbol: 'none',
         lineStyle: { color: '#ff4757', width: 2 },

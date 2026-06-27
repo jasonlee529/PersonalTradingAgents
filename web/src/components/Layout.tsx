@@ -16,18 +16,34 @@ import {
   IconList,
   IconStar,
   IconStorage,
+  IconThunderbolt,
 } from '@arco-design/web-react/icon'
 
 const { Sider, Header, Content } = ArcoLayout
 
-const menuItems = [
+interface MenuItem {
+  key: string
+  icon: any
+  label: string
+  children?: MenuItem[]
+}
+
+const menuItems: MenuItem[] = [
   { key: '/', icon: IconHome, label: '首页' },
   { key: '/portfolio', icon: IconDashboard, label: '我的持仓' },
   { key: '/stock', icon: IconArrowRise, label: '股票详情' },
   { key: '/stocks', icon: IconList, label: '股票列表' },
-  { key: '/limit-up', icon: IconFire, label: '涨停池' },
-  { key: '/limit-up-analysis', icon: IconStorage, label: '涨停分析' },
+  {
+    key: '/limit-up-group',
+    icon: IconFire,
+    label: '涨停',
+    children: [
+      { key: '/limit-up', icon: IconFire, label: '涨停池' },
+      { key: '/limit-up-analysis', icon: IconStorage, label: '涨停分析' },
+    ],
+  },
   { key: '/chanlun', icon: IconStar, label: '缠论信号' },
+  { key: '/strategies', icon: IconThunderbolt, label: '量化策略' },
   { key: '/sectors', icon: IconCompass, label: '今日方向' },
   { key: '/analysis', icon: IconRobot, label: 'AI分析' },
   { key: '/wiki', icon: IconBook, label: '知识库' },
@@ -42,6 +58,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  const [expandedMenus, setExpandedMenus] = useState<Set<string>>(new Set())
 
   const checkMobile = useCallback(() => {
     const mobile = window.innerWidth <= 768
@@ -60,13 +77,61 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     setMobileOpen(false)
   }, [location.pathname])
 
-  const isMenuActive = (key: string) => {
+  // 自动展开包含活动子项的菜单
+  useEffect(() => {
+    menuItems.forEach((item) => {
+      if (item.children) {
+        const hasActiveChild = item.children.some((child) => {
+          if (location.pathname === child.key) return true
+          if (child.key !== '/' && location.pathname.startsWith(`${child.key}/`)) return true
+          return false
+        })
+        if (hasActiveChild && !expandedMenus.has(item.key)) {
+          setExpandedMenus((prev) => new Set([...prev, item.key]))
+        }
+      }
+    })
+  }, [location.pathname, expandedMenus])
+
+  const isMenuActive = (key: string, item?: MenuItem): boolean => {
     if (location.pathname === key) return true
     if (key !== '/' && location.pathname.startsWith(`${key}/`)) return true
     if (key === '/wiki' && location.pathname.startsWith('/knowledge/')) return true
+    // 检查子菜单中的活动项
+    if (item?.children) {
+      return item.children.some((child: MenuItem) => isMenuActive(child.key, child))
+    }
     return false
   }
-  const activeItem = menuItems.find((item) => isMenuActive(item.key))
+
+  const toggleSubMenu = (key: string) => {
+    setExpandedMenus((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) {
+        next.delete(key)
+      } else {
+        next.add(key)
+      }
+      return next
+    })
+  }
+
+  const findActiveLabel = (): string => {
+    for (const item of menuItems) {
+      if (isMenuActive(item.key, item)) {
+        if (item.children) {
+          for (const child of item.children) {
+            if (isMenuActive(child.key)) {
+              return child.label
+            }
+          }
+        }
+        return item.label
+      }
+    }
+    return '投研助手'
+  }
+  const activeLabel = findActiveLabel()
   const handleLogout = async () => {
     await logout()
     navigate('/login', { replace: true })
@@ -98,7 +163,64 @@ export default function Layout({ children }: { children: React.ReactNode }) {
       <nav className="nav-menu" style={{ flex: 1, overflowY: 'auto', minHeight: 0, marginTop: 8, marginBottom: 8 }}>
         {menuItems.map((item) => {
           const Icon = item.icon
-          const isActive = isMenuActive(item.key)
+          const isActive = isMenuActive(item.key, item)
+          const isExpanded = expandedMenus.has(item.key)
+
+          // 有子菜单的项
+          if (item.children) {
+            return (
+              <div key={item.key} className="nav-group">
+                <div
+                  className={`nav-item nav-item-parent ${isActive ? 'nav-item-active' : ''} ${collapsed && !isMobile ? 'nav-item-collapsed' : ''}`}
+                  onClick={() => {
+                    if (collapsed && !isMobile) {
+                      // 折叠状态下直接导航到第一个子项
+                      if (item.children && item.children.length > 0) {
+                        navigate(item.children[0].key)
+                      }
+                    } else {
+                      toggleSubMenu(item.key)
+                    }
+                  }}
+                >
+                  <Icon />
+                  <span className="nav-label">{item.label}</span>
+                  {(!collapsed || isMobile) && (
+                    <span className="nav-arrow" style={{
+                      marginLeft: 'auto',
+                      transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.2s ease',
+                      fontSize: 12,
+                      color: 'var(--text-muted)',
+                    }}>
+                      ▼
+                    </span>
+                  )}
+                </div>
+                {isExpanded && (!collapsed || isMobile) && (
+                  <div className="nav-submenu" style={{ paddingLeft: 12 }}>
+                    {item.children.map((child) => {
+                      const ChildIcon = child.icon
+                      const childActive = isMenuActive(child.key)
+                      return (
+                        <div
+                          key={child.key}
+                          className={`nav-item nav-item-child ${childActive ? 'nav-item-active' : ''}`}
+                          onClick={() => navigate(child.key)}
+                          style={{ padding: '8px 12px', fontSize: 13 }}
+                        >
+                          <ChildIcon style={{ fontSize: 14 }} />
+                          <span className="nav-label">{child.label}</span>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          }
+
+          // 无子菜单的项
           return (
             <div
               key={item.key}
@@ -216,7 +338,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
                 letterSpacing: '-0.01em',
               }}
             >
-              {activeItem?.label || '投研助手'}
+              {activeLabel}
             </span>
           </div>
 
