@@ -559,9 +559,10 @@ export default function LimitUpAnalysisPage() {
             style={{ width: 160 }}
           />
           <Select value={market} onChange={setMarket} style={{ width: 150 }}>
-            <Select.Option value="all">全部主板</Select.Option>
-            <Select.Option value="sh">沪市主板</Select.Option>
-            <Select.Option value="sz">深市主板</Select.Option>
+            <Select.Option value="all">全部市场</Select.Option>
+            <Select.Option value="sh">沪市</Select.Option>
+            <Select.Option value="sz">深市</Select.Option>
+            <Select.Option value="bj">北交所</Select.Option>
           </Select>
         </div>
       </div>

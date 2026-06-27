@@ -280,14 +280,16 @@ class DataCollector:
         results = []
         for row in rows or []:
             item = dict(row)
-            board_market = cls._mainboard_market(str(item.get("symbol", "")))
-            if board_market is None:
+            inferred_market = cls._infer_market(str(item.get("symbol", "")))
+            if inferred_market is None:
                 continue
-            if market in {"sh", "sse", "sh_main"} and board_market != "sh":
+            if market in {"sh", "sse", "sh_main"} and inferred_market != "sh":
                 continue
-            if market in {"sz", "szse", "sz_main"} and board_market != "sz":
+            if market in {"sz", "szse", "sz_main"} and inferred_market != "sz":
                 continue
-            item["market"] = board_market
+            if market in {"bj"} and inferred_market != "bj":
+                continue
+            item["market"] = inferred_market
             results.append(item)
         return results
 

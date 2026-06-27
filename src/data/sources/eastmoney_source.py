@@ -861,6 +861,7 @@ class EastmoneySource(DataSource):
                 ("m:1+t:23", "沪市主板"),
                 ("m:1+t:10", "科创板"),
                 ("m:1+t:4", "沪市主板"),
+                ("m:0+t:81", "北交所"),
             ]
 
             all_stocks: list[dict] = []
@@ -894,8 +895,19 @@ class EastmoneySource(DataSource):
                             continue
                         seen_symbols.add(symbol)
 
-                        market_code = str(item.get("f13") or (1 if symbol.startswith("6") else 0))
-                        market = "sh" if market_code == "1" else "sz"
+                        market_code = str(item.get("f13") or "")
+                        if market_code == "1":
+                            market = "sh"
+                        elif market_code == "0":
+                            market = "sz"
+                        elif symbol.startswith("6"):
+                            market = "sh"
+                        elif symbol.startswith(("0", "3")):
+                            market = "sz"
+                        elif symbol.startswith(("4", "8", "9")):
+                            market = "bj"
+                        else:
+                            market = "sz"
 
                         price_raw = item.get("f2")
                         change_pct_raw = item.get("f3")
