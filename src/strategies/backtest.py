@@ -418,15 +418,15 @@ class BacktestEngine:
         sell_trades = [t for t in trades if t.action.startswith("sell")]
         win_trades = [t for t in sell_trades if t.pnl > 0]
         lose_trades = [t for t in sell_trades if t.pnl <= 0]
-        win_rate = len(win_trades) / len(sell_trades) * 100 if sell_trades else 0
+        win_rate = (len(win_trades) / len(sell_trades) * 100) if sell_trades else 0.0
 
         total_profit = sum(t.pnl for t in win_trades)
         total_loss = abs(sum(t.pnl for t in lose_trades))
-        profit_loss_ratio = total_profit / total_loss if total_loss > 0 else 0
+        profit_loss_ratio = (total_profit / total_loss) if total_loss > 0 else 0.0
 
         avg_holding_days = (
             sum(t.holding_days for t in sell_trades) / len(sell_trades)
-            if sell_trades else 0
+            if sell_trades else 0.0
         )
 
         return {

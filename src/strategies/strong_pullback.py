@@ -124,7 +124,11 @@ class StrongPullbackStrategy(BaseStrategy):
 
     @staticmethod
     def _strong_score(df: pd.DataFrame, p: dict[str, Any]) -> dict:
-        """多因子强势股评分。"""
+        """多因子强势股评分。
+
+        注意：动量和新高检查使用 20 日峰值（high_20）而非当前收盘价，
+        因为回踩后当前价可能低于 20 日前，但股票依然是"曾经强势"的。
+        """
         score = 0
         detail: dict[str, Any] = {}
 
@@ -132,18 +136,19 @@ class StrongPullbackStrategy(BaseStrategy):
         momentum_window = int(p["momentum_window"])
         momentum_threshold = float(p["momentum_threshold"])
 
-        # 动量：close[-1] / close[-20] > threshold
+        # 动量：high_60 / close[-20-1] > threshold（用60日峰值衡量，避免长回踩后失效）
         if len(df) > momentum_window:
             ref_close = float(df.iloc[-1 - momentum_window]["close"])
-            momentum = float(today["close"]) / ref_close if ref_close > 0 else 0
+            peak = float(today["high_60"]) if pd.notna(today["high_60"]) else float(today["close"])
+            momentum = peak / ref_close if ref_close > 0 else 0
             passed = momentum > momentum_threshold
             detail["momentum"] = {"passed": passed, "value": round(momentum, 3)}
             if passed:
                 score += 2
 
-        # 新高：close[-1] >= high_60[-1]
+        # 新高：high_20 >= high_60（近20日内创过60日新高）
         if pd.notna(today["high_60"]):
-            passed = float(today["close"]) >= float(today["high_60"])
+            passed = float(today["high_20"]) >= float(today["high_60"])
             detail["new_high"] = {"passed": passed}
             if passed:
                 score += 2
@@ -204,20 +209,26 @@ class StrongPullbackStrategy(BaseStrategy):
         if close < ma_val * (1 - float(p["ma_support_tolerance"])):
             return None
 
-        # 缩量
-        vol_ma5 = today["vol_ma5"]
-        if pd.isna(vol_ma5) or float(vol_ma5) <= 0:
+        # 缩量：回踩期间（不含今日）均量 < 上涨期间均量
+        # 回踩段 = high_20峰值之后、今日之前
+        high_20_idx = df["high"].iloc[-20:].idxmax()
+        pullback_segment = df.iloc[high_20_idx + 1: -1]  # 不含今日
+        rally_segment = df.iloc[max(0, high_20_idx - 20): high_20_idx + 1]
+        if len(pullback_segment) == 0 or len(rally_segment) == 0:
             return None
-        today_vol = float(today["volume"])
-        if today_vol >= float(vol_ma5):
+        pullback_avg_vol = float(pullback_segment["volume"].mean())
+        rally_avg_vol = float(rally_segment["volume"].mean())
+        if rally_avg_vol <= 0:
+            return None
+        if pullback_avg_vol >= rally_avg_vol:
             return None
 
-        # 整理结构：近3日最高 ≤ 近10日最高
+        # 整理结构：近3日（不含今日）最高 ≤ 近10日（不含今日）最高
         short_w = int(p["consolidation_short"])
         long_w = int(p["consolidation_long"])
-        if len(df) >= long_w:
-            recent_high_short = float(df["close"].iloc[-short_w:].max())
-            recent_high_long = float(df["close"].iloc[-long_w:].max())
+        if len(df) >= long_w + 1:
+            recent_high_short = float(df["close"].iloc[-(short_w + 1):-1].max())
+            recent_high_long = float(df["close"].iloc[-(long_w + 1):-1].max())
             if recent_high_short > recent_high_long:
                 return None
 
@@ -298,7 +309,7 @@ class StrongPullbackStrategy(BaseStrategy):
                 box_low = float(box_data["low"].min())
                 box_range = box_high - box_low
                 # 箱体幅度不超过 15%
-                if box_range > 0 and box_range / box_low < 0.15:
+                if box_range > 0 and box_low > 0 and box_range / box_low < 0.15:
                     if today_close > box_high and vol_ratio >= vol_ratio_threshold:
                         return {
                             "type": "box",

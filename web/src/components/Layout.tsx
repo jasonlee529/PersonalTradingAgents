@@ -43,7 +43,15 @@ const menuItems: MenuItem[] = [
     ],
   },
   { key: '/chanlun', icon: IconStar, label: '缠论信号' },
-  { key: '/strategies', icon: IconThunderbolt, label: '量化策略' },
+  {
+    key: '/strategies-group',
+    icon: IconThunderbolt,
+    label: '量化策略',
+    children: [
+      { key: '/strategies', icon: IconThunderbolt, label: '策略扫描' },
+      { key: '/backtest', icon: IconStorage, label: '策略回测' },
+    ],
+  },
   { key: '/sectors', icon: IconCompass, label: '今日方向' },
   { key: '/analysis', icon: IconRobot, label: 'AI分析' },
   { key: '/wiki', icon: IconBook, label: '知识库' },
