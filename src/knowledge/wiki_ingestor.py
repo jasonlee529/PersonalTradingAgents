@@ -463,53 +463,225 @@ class WikiIngestor:
     async def ingest_batch(
         self,
         source_ids: list[str],
+        *,
+        force: bool = False,
+        run_id: str | None = None,
     ) -> dict:
-        results: list[dict] = []
-        processed_sids: set[str] = set()
-
-        # Read source metadata to enable grouping
+        requested_ids = list(dict.fromkeys(source_ids))[: self.settings.wiki_ingest_batch_size]
+        rid = run_id or self._new_run_id("|".join(requested_ids))
+        source_errors: list[dict] = []
         sources: list[dict] = []
-        for sid in source_ids[: self.settings.wiki_ingest_batch_size]:
+
+        for sid in requested_ids:
             try:
                 source = await self.raw_store.read_source(sid)
-                sources.append(source)
             except FileNotFoundError:
-                results.append({"source_id": sid, "status": "failed", "error": "Source not found"})
-                processed_sids.add(sid)
+                source_errors.append({"source_id": sid, "status": "failed", "error": "Source not found"})
+                continue
 
-        # Group stock_analysis sources by run_id
-        analysis_run_groups: dict[str, list[dict]] = {}
-        non_analysis_sources: list[dict] = []
+            if not await self.raw_store.verify_source(sid):
+                error_msg = "Raw source hash mismatch"
+                await self._mark_source_failed(source, rid, error_msg)
+                source_errors.append({"source_id": sid, "status": "failed", "error": error_msg})
+                continue
 
-        for source in sources:
-            sk = source.get("source_kind", "")
-            run_id = source.get("metadata", {}).get("run_id", "")
-            if sk == "stock_analysis" and run_id:
-                analysis_run_groups.setdefault(run_id, []).append(source)
-            else:
-                non_analysis_sources.append(source)
+            state = await self.wiki_store.get_source_state(sid)
+            if (
+                state
+                and state.get("wiki_status") in WIKI_RUNNING_SOURCE_STATUSES
+                and state.get("latest_ingest_run_id")
+                and state.get("latest_ingest_run_id") != rid
+            ):
+                source_errors.append({
+                    "source_id": sid,
+                    "status": state.get("wiki_status", "applying"),
+                    "error": "Source already queued or running",
+                    "run_id": state.get("latest_ingest_run_id", ""),
+                })
+                continue
+            if state and state.get("wiki_status") == "processed" and not force:
+                source_errors.append({
+                    "source_id": sid,
+                    "status": "skipped",
+                    "run_id": state.get("latest_ingest_run_id", ""),
+                    "pages_touched": state.get("page_ids", []),
+                    "claims_touched": [],
+                    "warnings": ["Source already processed"],
+                })
+                continue
+            sources.append(source)
 
-        # Process each analysis run group once
-        for run_id, run_sources in analysis_run_groups.items():
-            result = await self.ingest_analysis_run(run_id)
-            for s in run_sources:
-                sid = s["source_id"]
-                if sid not in processed_sids:
-                    processed_sids.add(sid)
-                    results.append({"source_id": sid, **result})
+        if not sources:
+            return {
+                "run_id": rid,
+                "status": "failed" if any(r.get("status") == "failed" for r in source_errors) else "skipped",
+                "source_ids": [],
+                "pages_touched": [],
+                "claims_touched": [],
+                "warnings": [r.get("error", "") for r in source_errors if r.get("error")],
+                "batch_status": "failed" if any(r.get("status") == "failed" for r in source_errors) else "skipped",
+                "results": source_errors,
+            }
 
-        # Process remaining sources individually
-        for source in non_analysis_sources:
-            sid = source["source_id"]
-            if sid not in processed_sids:
-                result = await self.ingest_source(sid)
-                processed_sids.add(sid)
-                results.append({"source_id": sid, **result})
+        pages_touched: list[dict] = []
+        claims_touched: list[str] = []
+        batch_source_ids = [s["source_id"] for s in sources]
 
-        return {
-            "batch_status": "completed",
-            "results": results,
-        }
+        try:
+            await self._create_ingest_run(
+                rid,
+                "batch",
+                "",
+                "batch",
+                "apply",
+                status="planning",
+            )
+            for source in sources:
+                await self._mark_source_running(source, rid, "planning")
+
+            related_pages = await self._find_related_pages_for_sources(sources)
+            schema_text = await self.schema.read_schema()
+            plan = await self.planner.plan_batch_ingest(
+                sources=sources,
+                related_pages=related_pages,
+                schema_text=schema_text,
+            )
+
+            errors = validate_wiki_update_plan(plan, valid_source_ids=set(batch_source_ids))
+            if errors:
+                error_msg = "; ".join(errors)
+                await self._fail_ingest_run(rid, error_msg)
+                for source in sources:
+                    await self._mark_source_failed(source, rid, error_msg)
+                return {
+                    "run_id": rid,
+                    "status": "failed",
+                    "source_ids": batch_source_ids,
+                    "pages_touched": [],
+                    "claims_touched": [],
+                    "warnings": [error_msg],
+                    "batch_status": "failed",
+                    "results": source_errors,
+                }
+
+            await self.wiki_store.save_plan_to_run(rid, plan.model_dump())
+            await self._update_ingest_run_status(rid, "applying")
+            for source in sources:
+                await self._mark_source_running(source, rid, "applying")
+
+            created_page_ids = {p.page_id for p in plan.pages_to_create}
+            for page in plan.pages_to_create:
+                result = await self.wiki_store.upsert_page(
+                    page_id=page.page_id,
+                    page_type=page.page_type,
+                    title=page.title,
+                    slug=page.slug,
+                    markdown=page.markdown,
+                    metadata=page.metadata,
+                )
+                pages_touched.append({
+                    "page_id": result["page_id"],
+                    "title": result["title"],
+                    "page_type": result["page_type"],
+                    "slug": result.get("slug", ""),
+                })
+
+            patch_failures: list[str] = []
+            patch_successes = 0
+            for patch in plan.page_patches:
+                try:
+                    result = await self.wiki_store.patch_section(
+                        patch.page_id,
+                        section_id=patch.section_id,
+                        markdown=patch.markdown,
+                        mode=patch.mode,
+                    )
+                    pages_touched.append({
+                        "page_id": result["page_id"],
+                        "title": result["title"],
+                        "page_type": result["page_type"],
+                        "slug": result.get("slug", ""),
+                    })
+                    patch_successes += 1
+                except ValueError as e:
+                    warning = f"Patch failed for {patch.page_id}/{patch.section_id}: {e}"
+                    plan.warnings.append(warning)
+                    patch_failures.append(warning)
+                    if patch.page_id in created_page_ids:
+                        error_msg = f"Required patch failed: {warning}"
+                        await self._fail_ingest_run(rid, error_msg)
+                        for source in sources:
+                            await self._mark_source_failed(source, rid, error_msg)
+                        return {
+                            "run_id": rid,
+                            "status": "failed",
+                            "source_ids": batch_source_ids,
+                            "pages_touched": pages_touched,
+                            "claims_touched": claims_touched,
+                            "warnings": plan.warnings,
+                            "batch_status": "failed",
+                            "results": source_errors,
+                        }
+
+            if plan.page_patches and patch_successes == 0:
+                error_msg = "All intended page patches failed: " + "; ".join(patch_failures)
+                await self._fail_ingest_run(rid, error_msg)
+                for source in sources:
+                    await self._mark_source_failed(source, rid, error_msg)
+                return {
+                    "run_id": rid,
+                    "status": "failed",
+                    "source_ids": batch_source_ids,
+                    "pages_touched": pages_touched,
+                    "claims_touched": claims_touched,
+                    "warnings": plan.warnings,
+                    "batch_status": "failed",
+                    "results": source_errors,
+                }
+
+            for claim in plan.claims:
+                result = await self.wiki_store.upsert_claim(claim.model_dump())
+                claims_touched.append(result["claim_id"])
+
+            for page in plan.pages_to_create:
+                for sid in page.metadata.get("source_ids", []):
+                    await self.wiki_store.link_page_source(page.page_id, sid, source_role="generated_from")
+
+            page_ids = list({p["page_id"] for p in pages_touched})
+            for source in sources:
+                await self.wiki_store.upsert_source_state(
+                    source_id=source["source_id"],
+                    source_kind=source.get("source_kind", ""),
+                    raw_content_sha256=source.get("content_sha256", ""),
+                    wiki_status="processed",
+                    latest_ingest_run_id=rid,
+                    page_ids=page_ids,
+                )
+
+            if plan.log_entry:
+                await self.wiki_store.append_log(plan.log_entry)
+            await self.wiki_store.rebuild_index()
+            await self._complete_ingest_run(rid, pages_touched, claims_touched)
+
+            result = {
+                "run_id": rid,
+                "status": "completed",
+                "source_ids": batch_source_ids,
+                "pages_touched": pages_touched,
+                "claims_touched": claims_touched,
+                "warnings": plan.warnings,
+            }
+            return {
+                **result,
+                "batch_status": "completed",
+                "results": [{"source_id": sid, **result} for sid in batch_source_ids] + source_errors,
+            }
+
+        except Exception as e:
+            await self._fail_ingest_run(rid, str(e))
+            for source in sources:
+                await self._mark_source_failed(source, rid, str(e))
+            raise
 
     async def _find_related_pages(self, source: dict) -> list[dict]:
         symbol = source.get("symbol", "")
@@ -527,6 +699,19 @@ class WikiIngestor:
             if pid not in seen:
                 seen.add(pid)
                 unique.append(p)
+        return unique
+
+    async def _find_related_pages_for_sources(self, sources: list[dict]) -> list[dict]:
+        pages: list[dict] = []
+        for source in sources:
+            pages.extend(await self._find_related_pages(source))
+        seen = set()
+        unique = []
+        for page in pages:
+            page_id = page.get("page_id")
+            if page_id not in seen:
+                seen.add(page_id)
+                unique.append(page)
         return unique
 
     def _validate_plan(self, plan: WikiUpdatePlan) -> dict:

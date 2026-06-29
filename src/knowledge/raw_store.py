@@ -12,7 +12,7 @@ import aiosqlite
 import yaml
 
 from src.config import Settings
-from src.knowledge.raw_models import RAW_ORIGINS, RAW_SOURCE_KINDS
+from src.knowledge.raw_models import RAW_ORIGINS, RAW_SOURCE_KINDS, label_for_source_kind
 from src.utils.ticker import safe_ticker_component
 
 
@@ -657,6 +657,7 @@ class RawStore:
     @staticmethod
     def _normalise_record(row: dict) -> dict:
         result = dict(row)
+        result["source_kind_label"] = label_for_source_kind(str(result.get("source_kind") or ""))
         for json_field, public_field, fallback in [
             ("symbols_json", "symbols", []),
             ("tags_json", "tags", []),

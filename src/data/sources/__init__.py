@@ -1,6 +1,7 @@
 from src.data.sources.base import DataSource
 from src.data.sources.baostock_source import BaoStockSource
 from src.data.sources.baidu_source import BaiduSource
+from src.data.sources.akshare_source import AkshareSource
 from src.data.sources.cls_source import CLSSource
 from src.data.sources.cninfo_source import CninfoSource
 from src.data.sources.eastmoney_source import EastmoneySource
@@ -14,6 +15,7 @@ from src.data.sources.xueqiu_source import XueqiuSource
 
 __all__ = [
     "DataSource", "BaoStockSource", "BaiduSource",
-    "CLSSource", "CninfoSource", "EastmoneySource", "IndicatorSource", "SinaSource",
-    "TencentSource", "TdxSource", "THSSource", "TushareSource", "XueqiuSource",
+    "TushareSource", "AkshareSource", "CLSSource", "CninfoSource", "EastmoneySource", "IndicatorSource", "SinaSource",
+    "TencentSource", "THSSource", "XueqiuSource",
+>>>>>>> upstream/master
 ]

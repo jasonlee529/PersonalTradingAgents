@@ -11,7 +11,6 @@ from src.config import Settings
 from src.config import PERSISTED_SETTINGS_FIELDS
 from src.data.cache import DataCache
 from src.portfolio.manager import PortfolioManager
-from src.portfolio.trade_recorder import TradeRecorder
 from src.portfolio.orchestrator import PortfolioDrivenOrchestrator
 from src.knowledge.raw_store import RawStore
 from src.knowledge.wiki_ingest_queue import WikiIngestQueue
@@ -63,7 +62,6 @@ class AppServices:
         self.raw_store = RawStore(settings)
         self.wiki_store = WikiStore(settings)
         self.wiki_ingest_queue = WikiIngestQueue(settings, self.raw_store, self.wiki_store)
-        self.trade_recorder = TradeRecorder(self.portfolio, self.raw_store)
         self.job_store = JobStore(settings.analysis_db_path)
         self.collector = DataCollector(settings, self.cache)
         self.news_collector = NewsCollector(settings, self.cache, self.portfolio)

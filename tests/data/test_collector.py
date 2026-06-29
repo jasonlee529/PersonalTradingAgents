@@ -127,3 +127,60 @@ async def test_collector_get_board_stocks(collector):
     result = await collector.get_board_stocks("BK1033")
     assert len(result) == 1
     assert result[0]["symbol"] == "300750"
+
+
+@pytest.mark.asyncio
+async def test_collector_market_overview_defaults_to_eastmoney_when_priority_missing(collector):
+    collector._priority.pop("market_indices", None)
+    collector._priority.pop("market_statistics", None)
+    collector._priority.pop("sector_rankings", None)
+    collector._sources["eastmoney"].get_market_indices = AsyncMock(
+        return_value=[{"name": "SSE Composite", "current": 3123.45, "change_pct": -0.12}]
+    )
+    collector._sources["eastmoney"].get_market_statistics = AsyncMock(
+        return_value={"up_count": 1200, "down_count": 3800, "total_amount": 8200}
+    )
+    collector._sources["eastmoney"].get_sector_rankings = AsyncMock(return_value=([], []))
+
+    indices = await collector.get_market_indices()
+    stats = await collector.get_market_statistics()
+    rankings = await collector.get_sector_rankings()
+
+    assert indices[0]["name"] == "SSE Composite"
+    assert stats["total_amount"] == 8200
+    assert rankings == ([], [])
+    collector._sources["eastmoney"].get_market_indices.assert_awaited_once_with()
+    collector._sources["eastmoney"].get_market_statistics.assert_awaited_once_with()
+    collector._sources["eastmoney"].get_sector_rankings.assert_awaited_once_with(n=5)
+
+
+@pytest.mark.asyncio
+async def test_collector_market_indices_fallbacks_to_tencent(collector):
+    collector._priority["market_indices"] = ["eastmoney", "tencent", "sina"]
+    collector._sources["eastmoney"].get_market_indices = AsyncMock(return_value=None)
+    collector._sources["tencent"].get_market_indices = AsyncMock(
+        return_value=[{"name": "SSE Composite", "current": 3123.45, "source": "tencent"}]
+    )
+    collector._sources["sina"].get_market_indices = AsyncMock(return_value=[])
+
+    result = await collector.get_market_indices()
+
+    assert result[0]["source"] == "tencent"
+    collector._sources["eastmoney"].get_market_indices.assert_awaited_once_with()
+    collector._sources["tencent"].get_market_indices.assert_awaited_once_with()
+    collector._sources["sina"].get_market_indices.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_collector_market_statistics_fallbacks_to_sina(collector):
+    collector._priority["market_statistics"] = ["eastmoney", "sina"]
+    collector._sources["eastmoney"].get_market_statistics = AsyncMock(return_value=None)
+    collector._sources["sina"].get_market_statistics = AsyncMock(
+        return_value={"up_count": 1200, "down_count": 3800, "source": "sina"}
+    )
+
+    result = await collector.get_market_statistics()
+
+    assert result["source"] == "sina"
+    collector._sources["eastmoney"].get_market_statistics.assert_awaited_once_with()
+    collector._sources["sina"].get_market_statistics.assert_awaited_once_with()

@@ -58,6 +58,8 @@ PERSISTED_SETTINGS_FIELDS: dict[str, str] = {
     "opencode_go_api_key": "OPENCODE_GO_API_KEY",
     "scheduler_enabled": "SCHEDULER_ENABLED",
     "analysis_schedule": "ANALYSIS_SCHEDULE",
+    "analysis_timeout_seconds": "ANALYSIS_TIMEOUT_SECONDS",
+    "checkpoint_enabled": "CHECKPOINT_ENABLED",
     "daily_direction_notification_enabled": "DAILY_DIRECTION_NOTIFICATION_ENABLED",
     "notification_report_channels": "NOTIFICATION_REPORT_CHANNELS",
     "wechat_webhook_url": "WECHAT_WEBHOOK_URL",
@@ -286,7 +288,7 @@ class Settings(BaseSettings):
     analysis_worker_enabled: bool = True
     # Maximum seconds a single analysis job may run before being cancelled.
     # Prevents orphaned "running" status when an LLM call hangs indefinitely.
-    analysis_timeout_seconds: int = 600  # 10 minutes
+    analysis_timeout_seconds: int = 3600  # 1 hour
 
     # Data source priority (fallback chain per data type)
     # 主数据源: tushare, 其余为补充/降级
@@ -296,9 +298,9 @@ class Settings(BaseSettings):
         "fundamentals": ["tushare", "tencent", "eastmoney", "sina"],
         "news": ["xueqiu", "eastmoney", "sina"],
         "global_news": ["eastmoney", "cls"],
-        "balance_sheet": ["sina", "eastmoney"],
-        "cashflow": ["sina", "eastmoney"],
-        "income_statement": ["sina", "eastmoney"],
+        "balance_sheet": ["sina", "eastmoney", "akshare"],
+        "cashflow": ["sina", "eastmoney", "akshare"],
+        "income_statement": ["sina", "eastmoney", "akshare"],
         "consensus_expectations": ["ths"],
         "market_heatmap": ["ths"],
         "cross_border_flow": ["ths"],
@@ -310,6 +312,9 @@ class Settings(BaseSettings):
         "trading_seat_activity": ["eastmoney"],
         "supply_unlock_schedule": ["eastmoney"],
         "peer_industry_snapshot": ["eastmoney"],
+        "market_indices": ["eastmoney", "tencent", "sina"],
+        "market_statistics": ["eastmoney", "sina"],
+        "sector_rankings": ["eastmoney"],
         "announcements": ["ths", "cninfo"],
         "research_reports": ["eastmoney"],
         "limit_up_stocks": ["tushare", "eastmoney", "tdx", "sina"],

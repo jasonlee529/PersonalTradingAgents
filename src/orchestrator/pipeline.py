@@ -33,6 +33,32 @@ _REPORT_KIND_MAP = [
     ("final_trade_decision", "final_trade_decision", "Final Decision"),
 ]
 
+_STEP_TO_RESUME_NODE = {
+    "analyst_market": "Msg Clear Market",
+    "analyst_sentiment": "Msg Clear Sentiment",
+    "analyst_news": "Msg Clear News",
+    "analyst_fundamentals": "Msg Clear Fundamentals",
+    "analyst_catalyst": "Msg Clear Catalyst",
+    "analyst_flow_risk": "Msg Clear Flow Risk",
+    "debate_bull": "Bull Researcher",
+    "debate_bear": "Bear Researcher",
+    "debate_judge": "Research Manager",
+    "trader_plan": "Trader",
+    "risk_aggressive": "Aggressive Analyst",
+    "risk_conservative": "Conservative Analyst",
+    "risk_neutral": "Neutral Analyst",
+    "final_decision": "Portfolio Manager",
+}
+
+_ANALYST_ARTIFACT_KEYS = {
+    "analyst_market": "market_report",
+    "analyst_sentiment": "sentiment_report",
+    "analyst_news": "news_report",
+    "analyst_fundamentals": "fundamentals_report",
+    "analyst_catalyst": "catalyst_report",
+    "analyst_flow_risk": "flow_risk_report",
+}
+
 
 class AnalysisPipeline:
     """Coordinates the full analysis pipeline: portfolio -> data -> analysis -> raw."""
@@ -73,23 +99,38 @@ class AnalysisPipeline:
         await self.job_store.save(job)
 
         reporter = PhaseReporter(job, self.job_store)
+        run_config = dict(config_overrides or {})
+        stored_config = dict(job.config or {})
+        trade_date = str(
+            run_config.get("trade_date")
+            or stored_config.get("trade_date")
+            or datetime.now().strftime("%Y-%m-%d")
+        )
+        stored_config.setdefault("trade_date", trade_date)
+        if "checkpoint_enabled" not in stored_config:
+            stored_config["checkpoint_enabled"] = run_config.get("checkpoint_enabled", True)
+        run_config.setdefault("trade_date", trade_date)
+        run_config.setdefault("checkpoint_enabled", stored_config["checkpoint_enabled"])
+        resume_seed = self._build_resume_seed(job)
+        if run_config.get("checkpoint_enabled") and resume_seed:
+            run_config.update(resume_seed)
+        job.config = stored_config
+        await self.job_store.save(job)
 
         try:
             job.update_progress("Running TradingAgents multi-agent analysis...")
             await self.job_store.save(job)
 
-            trade_date = datetime.now().strftime("%Y-%m-%d")
-
             holding = await self.portfolio.get_holding(symbol)
             company_name = holding.name if holding else None
 
-            timeout_seconds = getattr(self.settings, "analysis_timeout_seconds", 600) or 600
+            timeout_seconds = getattr(self.settings, "analysis_timeout_seconds", 3600) or 3600
             final_state, _ = await asyncio.wait_for(
                 self.ta_wrapper.analyze(
                     symbol,
                     trade_date=trade_date,
                     selected_analysts=selected_analysts,
-                    config_overrides=config_overrides,
+                    config_overrides=run_config,
                     company_name=company_name,
                     phase_reporter=reporter,
                 ),
@@ -120,87 +161,21 @@ class AnalysisPipeline:
             await reporter.on_finalized(
                 "\n".join(["## Generated files"] + [f"- {path}" for path in output_files])
             )
+            if job.config:
+                job.config.pop("resume_failed_step", None)
             summary = decision[:200] if decision else "Analysis complete"
             job.complete(summary)
             await self.job_store.save(job)
             logger.info("Analysis complete for %s: %s", symbol, summary)
 
         except asyncio.TimeoutError:
-            timeout_seconds = getattr(self.settings, "analysis_timeout_seconds", 600) or 600
+            timeout_seconds = getattr(self.settings, "analysis_timeout_seconds", 3600) or 3600
+            message = f"Analysis timed out after {timeout_seconds}s"
             logger.error("Analysis timed out for %s after %ss", symbol, timeout_seconds)
-
-            # Determine how much analysis actually completed.
-            # Step IDs are ordered logically: prepare -> analysts -> debate ->
-            # trader -> risk -> final_decision -> packaging.  Count how far we
-            # got by finding the last step that has meaningful content.
-            _STEP_PROGRESS = [
-                "prepare_data",
-                "analyst_market", "analyst_sentiment", "analyst_news",
-                "analyst_fundamentals", "analyst_catalyst", "analyst_flow_risk",
-                "debate_bull", "debate_bear", "debate_judge",
-                "trader_plan",
-                "risk_aggressive", "risk_conservative", "risk_neutral",
-                "final_decision",
-            ]
-            _step_map = {s.step_id: s for s in job.steps}
-            last_done_idx = -1
-            for i, sid in enumerate(_STEP_PROGRESS):
-                step = _step_map.get(sid)
-                if step and (step.status == StepStatus.DONE or step.detail):
-                    last_done_idx = i
-                else:
-                    break
-
-            # Fix steps that have content but weren't marked DONE due to the
-            # timeout race — update their status to reflect reality.
-            for sid in _STEP_PROGRESS[: last_done_idx + 1]:
-                step = _step_map.get(sid)
-                if step and step.status == StepStatus.RUNNING and step.detail:
-                    step.status = StepStatus.DONE
-                    step.completed_at = step.completed_at or datetime.now()
-
-            if last_done_idx >= _STEP_PROGRESS.index("trader_plan"):
-                # At least all analysts + debate + trader plan completed.
-                # This is genuinely useful analysis data even without the
-                # final synthesis — mark the job as done, not failed.
-                await reporter.on_complete()
-                # Mark remaining steps that didn't run as skipped.
-                _COMPLETION_STEP_IDS = [
-                    sid for sid in _STEP_PROGRESS
-                    if _STEP_PROGRESS.index(sid) > last_done_idx
-                ] + ["final_packaging", "completed"]
-                for sid in _COMPLETION_STEP_IDS:
-                    step = _step_map.get(sid)
-                    if step and step.status == StepStatus.PENDING:
-                        step.status = StepStatus.DONE
-                        step.detail = step.detail or "Skipped: timed out"
-                        step.completed_at = step.completed_at or datetime.now()
-                # If final_decision has content, include it in the summary.
-                fd_step = _step_map.get("final_decision")
-                if fd_step and fd_step.detail:
-                    summary = fd_step.detail[:200]
-                else:
-                    last_step = _step_map.get(_STEP_PROGRESS[last_done_idx])
-                    last_label = last_step.label if last_step else "analysis"
-                    summary = f"Analysis timed out after {last_label} (partial — {last_done_idx + 1}/{len(_STEP_PROGRESS)} core steps done)"
-                job.complete(summary)
-                await self.job_store.save(job)
-                logger.info(
-                    "Recovering timed-out job %s: %d/%d core steps done, completing as partial",
-                    symbol, last_done_idx + 1, len(_STEP_PROGRESS),
-                )
-                return job
-            else:
-                await reporter.on_error(
-                    job.phase or "preparing",
-                    f"Analysis timed out after {timeout_seconds}s (only {last_done_idx + 1} core steps completed)",
-                )
-                job.fail(
-                    f"Analysis timed out after {timeout_seconds}s "
-                    f"(only {last_done_idx + 1}/{len(_STEP_PROGRESS)} core steps completed)"
-                )
-                await self.job_store.save(job)
-                raise
+            await reporter.on_error(job.phase or "preparing", message)
+            job.fail(message)
+            await self.job_store.save(job)
+            raise
         except Exception as e:
             logger.error("Analysis failed for %s: %s", symbol, e)
             current_phase = job.phase or "preparing"
@@ -211,6 +186,112 @@ class AnalysisPipeline:
             raise
 
         return job
+
+    def _build_resume_seed(self, job: AnalysisJob) -> dict:
+        """Build a conservative checkpoint seed from persisted step artifacts.
+
+        This is only a fallback for jobs created before checkpointing was on.
+        If LangGraph already has a real checkpoint, the graph layer ignores
+        this seed and resumes from the durable checkpoint instead.
+        """
+        if not job.steps:
+            return {}
+
+        failed_step_id = str((job.config or {}).get("resume_failed_step") or "")
+        error_index = None
+        for idx, step in enumerate(job.steps):
+            if step.status == StepStatus.ERROR or (failed_step_id and step.step_id == failed_step_id):
+                error_index = idx
+                failed_step_id = step.step_id
+                break
+        if error_index is None:
+            return {}
+
+        resume_as_node = ""
+        for step in reversed(job.steps[:error_index]):
+            if step.status == StepStatus.DONE and step.step_id in _STEP_TO_RESUME_NODE:
+                resume_as_node = _STEP_TO_RESUME_NODE[step.step_id]
+                break
+        if not resume_as_node:
+            return {}
+
+        resume_state: dict[str, object] = {}
+        reports: dict[str, str] = {}
+        detail_by_step = {
+            step.step_id: step.detail
+            for step in job.steps
+            if step.status == StepStatus.DONE and step.detail
+        }
+
+        for step_id, key in _ANALYST_ARTIFACT_KEYS.items():
+            value = detail_by_step.get(step_id, "")
+            if value:
+                resume_state[key] = value
+                reports[key] = value
+        if reports:
+            resume_state["reports"] = reports
+
+        bull_history = detail_by_step.get("debate_bull", "")
+        bear_history = detail_by_step.get("debate_bear", "")
+        debate_parts = [part for part in (bull_history, bear_history) if part]
+        debate_count = len(debate_parts)
+        if failed_step_id in {"debate_judge", "trader_plan", "risk_aggressive", "risk_conservative", "risk_neutral", "final_decision"}:
+            debate_count = max(debate_count, 2 * self.settings.max_debate_rounds)
+        resume_state["investment_debate_state"] = {
+            "bull_history": bull_history,
+            "bear_history": bear_history,
+            "history": "\n".join(debate_parts),
+            "current_response": bear_history or bull_history,
+            "judge_decision": detail_by_step.get("debate_judge", ""),
+            "count": debate_count,
+        }
+
+        if detail_by_step.get("debate_judge"):
+            resume_state["investment_plan"] = detail_by_step["debate_judge"]
+        if detail_by_step.get("trader_plan"):
+            resume_state["trader_investment_plan"] = detail_by_step["trader_plan"]
+
+        risk_order = [
+            ("risk_aggressive", "aggressive_history", "Aggressive"),
+            ("risk_conservative", "conservative_history", "Conservative"),
+            ("risk_neutral", "neutral_history", "Neutral"),
+        ]
+        risk_parts: list[str] = []
+        latest_speaker = ""
+        risk_state: dict[str, object] = {
+            "aggressive_history": "",
+            "conservative_history": "",
+            "neutral_history": "",
+        }
+        for step_id, key, speaker in risk_order:
+            value = detail_by_step.get(step_id, "")
+            risk_state[key] = value
+            if value:
+                risk_parts.append(value)
+                latest_speaker = speaker
+        risk_count = len(risk_parts)
+        if failed_step_id == "final_decision":
+            risk_count = max(risk_count, 3 * self.settings.max_risk_discuss_rounds)
+        risk_state.update(
+            {
+                "history": "\n".join(risk_parts),
+                "latest_speaker": latest_speaker,
+                "current_aggressive_response": detail_by_step.get("risk_aggressive", ""),
+                "current_conservative_response": detail_by_step.get("risk_conservative", ""),
+                "current_neutral_response": detail_by_step.get("risk_neutral", ""),
+                "judge_decision": detail_by_step.get("final_decision", ""),
+                "count": risk_count,
+            }
+        )
+        resume_state["risk_debate_state"] = risk_state
+
+        if detail_by_step.get("final_decision"):
+            resume_state["final_trade_decision"] = detail_by_step["final_decision"]
+
+        return {
+            "resume_as_node": resume_as_node,
+            "resume_state": resume_state,
+        }
 
     async def run_all(self) -> list[AnalysisJob]:
         """Run analysis for all portfolio holdings."""

@@ -811,16 +811,47 @@ class EastmoneySource(DataSource):
     async def get_market_statistics(self) -> Optional[dict]:
         """Fetch all A-share ticks and compute breadth stats."""
         try:
-            all_stocks = await self.get_all_stock_quotes()
-            if not all_stocks:
+            url = "https://push2.eastmoney.com/api/qt/clist/get"
+            base_params = {
+                "pz": "100", "po": "1", "np": "1",
+                "fltt": "2", "invt": "2",
+                "fs": "m:0+t:6,m:0+t:13,m:1+t:2,m:1+t:23",
+                "fields": "f2,f3,f4,f5,f6,f12,f14,f17,f18",
+            }
+            items = []
+            total = None
+            for page in range(1, 80):
+                params = {**base_params, "pn": str(page)}
+                r = await asyncio.to_thread(
+                    requests.get, url, params=params, headers={"User-Agent": _UA}, timeout=20
+                )
+                d = r.json()
+                data = d.get("data") or {}
+                page_items = data.get("diff", [])
+                if total is None:
+                    total = data.get("total")
+                if not page_items:
+                    break
+                items.extend(page_items)
+                if total and len(items) >= int(total):
+                    break
+            if not items:
                 return None
 
             up_count = down_count = flat_count = limit_up_count = limit_down_count = 0
             total_amount = 0.0
 
-            for stock in all_stocks:
-                change_pct = float(stock.get("change_pct") or 0)
-                amount = float(stock.get("turnover") or 0)
+            for item in items:
+                try:
+                    change_pct = float(item.get("f3") or 0)
+                except (TypeError, ValueError):
+                    continue
+                try:
+                    amount = float(item.get("f6") or 0)
+                except (TypeError, ValueError):
+                    amount = 0.0
+                code = str(item.get("f12", ""))
+                name = str(item.get("f14", ""))
                 total_amount += amount
 
                 if change_pct > 0:
@@ -842,7 +873,9 @@ class EastmoneySource(DataSource):
                 "flat_count": flat_count,
                 "limit_up_count": limit_up_count,
                 "limit_down_count": limit_down_count,
-                "total_turnover": total_amount,
+                "total_amount": round(total_amount / 1e8, 2),
+                "stock_count": up_count + down_count + flat_count,
+                "source": self.name,
             }
         except Exception as e:
             logger.warning("Eastmoney market statistics failed: %s", e)

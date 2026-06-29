@@ -36,9 +36,7 @@ async def list_holdings(services: AppServices = Depends(get_services)):
     holdings = await services.portfolio.list_holdings()
     results = []
     for h in holdings:
-        holding_name = await _resolve_holding_name(h.symbol, h.name, services)
-        if holding_name and holding_name != h.name:
-            await services.portfolio.update_holding_name(h.symbol, holding_name)
+        holding_name = h.name or h.symbol
         pos = await services.portfolio.get_position(h.symbol)
         results.append(HoldingDetailResponse(
             holding=HoldingResponse(
@@ -73,14 +71,6 @@ async def add_holding(body: HoldingCreate, services: AppServices = Depends(get_s
         await services.portfolio.set_position(
             holding.symbol, body.quantity or 0, Decimal(str(body.avg_cost or 0))
         )
-    if body.quantity > 0:
-        await services.trade_recorder.record_position_change(
-            symbol=holding.symbol,
-            old_quantity=0,
-            new_quantity=body.quantity,
-            price=body.avg_cost,
-            reason="建仓",
-        )
     # Auto-fetch initial price if available
     try:
         quote = await services.collector.get_quote(symbol)
@@ -111,37 +101,22 @@ async def update_position(
     services: AppServices = Depends(get_services),
 ):
     old_pos = await services.portfolio.get_position(symbol)
-    old_qty = old_pos.quantity if old_pos else 0
     from decimal import Decimal
     pos = Position(
         symbol=symbol,
         quantity=body.quantity,
         avg_cost=Decimal(str(body.avg_cost)),
     )
-    # Preserve existing current_price and recalculate derived fields
-    if old_pos and old_pos.current_price is not None:
-        pos.current_price = old_pos.current_price
-        pos.update_price(pos.current_price)
-    elif body.current_price is not None:
-        pos.current_price = Decimal(str(body.current_price))
-        pos.update_price(pos.current_price)
-    # Allow overriding unrealized_pnl directly
-    if body.unrealized_pnl is not None:
-        pos.unrealized_pnl = Decimal(str(body.unrealized_pnl))
-        if pos.avg_cost and pos.quantity > 0:
-            cost = pos.avg_cost * pos.quantity
-            pos.unrealized_pnl_pct = (pos.unrealized_pnl / cost) * 100 if cost else Decimal("0")
+    # User edits only the final position inputs. PnL is always derived from
+    # quantity, average cost, and current price.
+    if body.current_price is not None:
+        pos.update_price(Decimal(str(body.current_price)))
+    elif old_pos and old_pos.current_price is not None:
+        pos.update_price(old_pos.current_price)
     await services.portfolio.upsert_position(
         pos,
         user_adjusted=True,
         adjustment_reason=body.override_reason or "用户手动修改",
-    )
-    await services.trade_recorder.record_position_change(
-        symbol=symbol,
-        old_quantity=old_qty,
-        new_quantity=body.quantity,
-        price=body.avg_cost,
-        reason=body.override_reason or "用户手动修改持仓",
     )
     return {"symbol": symbol, "status": "updated"}
 

@@ -51,6 +51,33 @@ async def test_upsert_and_read_page(test_settings):
 
 
 @pytest.mark.asyncio
+async def test_upsert_page_dedupes_slug_conflict(test_settings):
+    store = WikiStore(test_settings)
+    await store.init_db()
+
+    first = await store.upsert_page(
+        page_id="source_digest:first",
+        page_type="source_digest",
+        title="First",
+        slug="sources/manual/shared",
+        markdown="# First",
+        metadata={"source_id": "manual_source:first", "source_kind": "manual_source"},
+    )
+    second = await store.upsert_page(
+        page_id="source_digest:second",
+        page_type="source_digest",
+        title="Second",
+        slug="sources/manual/shared",
+        markdown="# Second",
+        metadata={"source_id": "manual_source:second", "source_kind": "manual_source"},
+    )
+
+    assert first["slug"] == "sources/manual/shared"
+    assert second["slug"].startswith("sources/manual/shared-")
+    assert second["slug"] != first["slug"]
+
+
+@pytest.mark.asyncio
 async def test_verify_page(test_settings):
     store = WikiStore(test_settings)
     await store.init_db()

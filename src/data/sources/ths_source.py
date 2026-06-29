@@ -131,15 +131,34 @@ class THSSource(DataSource):
                 logger.warning("THS hot stocks API error: %s", d.get("errormsg"))
                 return None
             rows = d.get("data") or []
+            valid_rows = [row for row in rows if self._is_valid_harden_row(row, date)]
+            if rows and not valid_rows:
+                logger.warning(
+                    "THS hot stocks returned %d rows for %s but none had complete market fields",
+                    len(rows), date,
+                )
+                return None
             return [{
                 "code": row.get("code"), "name": row.get("name"),
                 "reason": row.get("reason"), "change_pct": row.get("zhangfu"),
                 "turnover": row.get("huanshou"), "amount": row.get("chengjiaoe"),
                 "dde_net": row.get("ddejingliang"),
-            } for row in rows]
+                "data_date": row.get("date") or date,
+            } for row in valid_rows]
         except Exception as e:
             logger.warning("THS hot stocks failed: %s", e)
             return None
+
+    @staticmethod
+    def _is_valid_harden_row(row: dict, requested_date: str) -> bool:
+        if str(row.get("date") or requested_date) != requested_date:
+            return False
+        if not row.get("code") or not row.get("reason"):
+            return False
+        return any(
+            row.get(key) is not None
+            for key in ("zhangfu", "huanshou", "chengjiaoe", "ddejingliang", "close")
+        )
 
     def _cache_path(self) -> str:
         from src.config import settings

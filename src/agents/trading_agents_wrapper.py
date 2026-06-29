@@ -143,6 +143,15 @@ class TradingAgentsWrapper:
             trade_date = datetime.now().strftime("%Y-%m-%d")
 
         past_context = await load_raw_memory_context(self._raw_store, ticker)
+        if past_context:
+            logger.info(
+                "Analysis memory context injected for %s (%d chars):\n%s",
+                ticker,
+                len(past_context),
+                past_context,
+            )
+        else:
+            logger.info("No analysis memory context found for %s", ticker)
 
         use_custom = (
             selected_analysts is not None

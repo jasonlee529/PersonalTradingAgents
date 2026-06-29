@@ -165,6 +165,45 @@ async def test_analysis_run_ingest_groups_sources(test_settings):
 
 
 @pytest.mark.asyncio
+async def test_batch_ingest_processes_multiple_sources_in_one_run(test_settings):
+    raw_store, wiki_store = _make_stores(test_settings)
+    await raw_store.init_db()
+    await wiki_store.init_db()
+    ingestor = WikiIngestor(test_settings, raw_store, wiki_store)
+
+    s1 = await raw_store.add_source(
+        source_kind="manual_source",
+        origin="user",
+        title="Batch Material 1",
+        markdown="# Batch 1\n\nBody",
+        metadata={"symbols": ["603738"]},
+    )
+    s2 = await raw_store.add_source(
+        source_kind="manual_source",
+        origin="user",
+        title="Batch Material 2",
+        markdown="# Batch 2\n\nBody",
+        metadata={"symbols": ["603738"]},
+    )
+
+    result = await ingestor.ingest_batch([s1["source_id"], s2["source_id"]])
+
+    assert result["status"] == "completed"
+    assert result["batch_status"] == "completed"
+    assert set(result["source_ids"]) == {s1["source_id"], s2["source_id"]}
+    assert len({item["run_id"] for item in result["results"]}) == 1
+
+    for sid in [s1["source_id"], s2["source_id"]]:
+        state = await wiki_store.get_source_state(sid)
+        assert state["wiki_status"] == "processed"
+        assert state["latest_ingest_run_id"] == result["run_id"]
+
+    pages = await wiki_store.list_pages()
+    source_digests = [p for p in pages if p["page_type"] == "source_digest"]
+    assert len(source_digests) == 2
+
+
+@pytest.mark.asyncio
 async def test_hash_mismatch_does_not_write(test_settings):
     raw_store, wiki_store = _make_stores(test_settings)
     await raw_store.init_db()

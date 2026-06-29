@@ -18,6 +18,25 @@ logger = logging.getLogger(__name__)
 # How often (seconds) to sweep for stale running jobs in the main loop.
 _STALE_RECLAIM_INTERVAL = 120
 
+_ANALYSIS_CONFIG_OVERRIDE_KEYS = {
+    "output_language",
+    "llm_provider",
+    "research_depth",
+    "thinking_agents",
+    "trade_date",
+    "checkpoint_enabled",
+}
+
+
+def build_analysis_config_overrides(cfg: dict | None) -> dict | None:
+    """Return config keys that affect a TradingAgents run."""
+    if not cfg:
+        return None
+    return {
+        k: v for k, v in cfg.items()
+        if k in _ANALYSIS_CONFIG_OVERRIDE_KEYS
+    } or None
+
 
 class AnalysisJobWorker:
     def __init__(self, settings: Settings, poll_interval: float = 1.0):
@@ -149,16 +168,7 @@ class AnalysisJobWorker:
                 )
 
                 cfg = job.config or {}
-                config_overrides = {
-                    k: v for k, v in cfg.items()
-                    if k in (
-                        "output_language",
-                        "llm_provider",
-                        "research_depth",
-                        "thinking_agents",
-                        "trade_date",
-                    )
-                } or None
+                config_overrides = build_analysis_config_overrides(cfg)
                 await self.pipeline.run_single(
                     job.symbol,
                     selected_analysts=cfg.get("analysts"),

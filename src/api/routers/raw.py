@@ -51,8 +51,9 @@ async def add_source(
         if body.source_kind == "manual_source" and body.origin != "user":
             raise ValueError("manual_source origin must be user")
         if body.source_kind != "manual_source" and body.origin == "user":
-            # Users should use manual_source for pasted material. daily_trade_log has its own endpoint.
-            allowed_user_kinds = {"daily_trade_log"}
+            # Users should use manual_source for pasted material. Structured user
+            # workflows have their own source kinds.
+            allowed_user_kinds = {"daily_trade_log", "portfolio_snapshot"}
             if body.source_kind not in allowed_user_kinds:
                 raise ValueError("user-created materials must use source_kind=manual_source")
         return await services.raw_store.add_source(

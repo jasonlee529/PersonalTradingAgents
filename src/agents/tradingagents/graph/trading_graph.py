@@ -271,6 +271,7 @@ class TradingAgentsGraph:
         self.ticker = company_name
 
         # Recompile with a checkpointer if the user opted in.
+        resume_from_checkpoint = False
         if self.config.get("checkpoint_enabled"):
             checkpoint_dir = self.config.get("checkpoint_dir", self.config["data_cache_dir"])
             self._checkpointer_ctx = get_checkpointer(
@@ -283,6 +284,7 @@ class TradingAgentsGraph:
                 checkpoint_dir, company_name, str(trade_date)
             )
             if step is not None:
+                resume_from_checkpoint = True
                 logger.info(
                     "Resuming from step %d for %s on %s", step, company_name, trade_date
                 )
@@ -297,6 +299,7 @@ class TradingAgentsGraph:
                 context_provider=context_provider,
                 event_handler=event_handler,
                 stream=stream,
+                resume_from_checkpoint=resume_from_checkpoint,
             )
         finally:
             if self._checkpointer_ctx is not None:
@@ -312,6 +315,7 @@ class TradingAgentsGraph:
         context_provider=None,
         event_handler=None,
         stream: Optional[bool] = None,
+        resume_from_checkpoint: bool = False,
     ):
         """Execute the graph and write the resulting state to disk and memory log."""
         past_context = ""
@@ -351,18 +355,24 @@ class TradingAgentsGraph:
             tid = thread_id(company_name, str(trade_date))
             args.setdefault("config", {}).setdefault("configurable", {})["thread_id"] = tid
 
+        if self.config.get("checkpoint_enabled") and not resume_from_checkpoint:
+            resume_from_checkpoint = self._seed_resume_checkpoint(args, init_agent_state)
+
         should_stream = self.config.get("stream_graph", False) if stream is None else stream
         handler = event_handler or self.config.get("event_handler")
 
+        graph_input = None if resume_from_checkpoint else init_agent_state
+
         if should_stream or handler:
             final_state = self._stream_graph_with_events(
-                init_agent_state,
+                graph_input,
                 args,
                 handler,
             )
         elif self.debug:
+            final_state = self._checkpoint_state(args) if resume_from_checkpoint else {}
             trace = []
-            for chunk in self.graph.stream(init_agent_state, **args):
+            for chunk in self.graph.stream(graph_input, **args):
                 if len(chunk["messages"]) == 0:
                     pass
                 else:
@@ -370,11 +380,10 @@ class TradingAgentsGraph:
                     trace.append(chunk)
             # Streamed chunks are per-node deltas. Merge them so the returned
             # state matches what graph.invoke() yields in the non-debug path.
-            final_state = {}
             for chunk in trace:
                 final_state.update(chunk)
         else:
-            final_state = self.graph.invoke(init_agent_state, **args)
+            final_state = self.graph.invoke(graph_input, **args)
 
         # Store current state for reflection.
         self.curr_state = final_state
@@ -391,9 +400,13 @@ class TradingAgentsGraph:
 
         return final_state, self.process_signal(final_state["final_trade_decision"])
 
-    def _stream_graph_with_events(self, init_agent_state, args, event_handler=None):
+    def _stream_graph_with_events(self, graph_input, args, event_handler=None):
         """Stream graph updates and optionally report node lifecycle events."""
-        final_state = dict(init_agent_state)
+        final_state = (
+            self._checkpoint_state(args)
+            if graph_input is None
+            else dict(graph_input)
+        )
         last_node = "unknown"
         stream_args = dict(args)
         stream_args.pop("stream_mode", None)
@@ -402,7 +415,7 @@ class TradingAgentsGraph:
 
         try:
             for chunk in self.graph.stream(
-                init_agent_state,
+                graph_input,
                 stream_mode="updates",
                 **stream_args,
             ):
@@ -445,6 +458,40 @@ class TradingAgentsGraph:
             raise
 
         return final_state
+
+    def _seed_resume_checkpoint(self, args, init_agent_state) -> bool:
+        """Seed a checkpoint from persisted job artifacts when no real one exists."""
+        resume_state = self.config.get("resume_state")
+        resume_as_node = self.config.get("resume_as_node")
+        if not isinstance(resume_state, dict) or not resume_as_node:
+            return False
+        try:
+            seeded_state = dict(init_agent_state)
+            seeded_state.update(resume_state)
+            self.graph.update_state(
+                args.get("config", {}),
+                seeded_state,
+                as_node=str(resume_as_node),
+            )
+            logger.info("Seeded resume checkpoint from persisted artifacts at %s", resume_as_node)
+            return True
+        except Exception:
+            logger.warning(
+                "Failed to seed resume checkpoint from persisted artifacts; starting fresh",
+                exc_info=True,
+            )
+            return False
+
+    def _checkpoint_state(self, args) -> Dict[str, Any]:
+        """Return the latest checkpointed state for a resumable stream."""
+        try:
+            snapshot = self.graph.get_state(args.get("config", {}))
+            values = getattr(snapshot, "values", None)
+            if isinstance(values, dict):
+                return dict(values)
+        except Exception:
+            logger.debug("Unable to read checkpoint state before resume", exc_info=True)
+        return {}
 
     @staticmethod
     def _emit_event(event_handler, method_name: str, *args) -> None:

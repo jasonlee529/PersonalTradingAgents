@@ -5,6 +5,7 @@ import { useAuthStore } from './store/useAuthStore'
 
 const HomePage = lazy(() => import('./pages/HomePage'))
 const PortfolioPage = lazy(() => import('./pages/PortfolioPage'))
+const PortfolioSnapshotPage = lazy(() => import('./pages/PortfolioSnapshotPage'))
 const StockDetailPage = lazy(() => import('./pages/StockDetailPage'))
 const LimitUpPage = lazy(() => import('./pages/LimitUpPage'))
 const LimitUpAnalysisPage = lazy(() => import('./pages/LimitUpAnalysisPage'))
@@ -19,7 +20,6 @@ const RawSourceDetailPage = lazy(() => import('./pages/RawSourceDetailPage'))
 const ManualMaterialsPage = lazy(() => import('./pages/ManualMaterialsPage'))
 const ManualSourceNewPage = lazy(() => import('./pages/ManualSourceNewPage'))
 const RawSourceEditPage = lazy(() => import('./pages/RawSourceEditPage'))
-const DailyTradeLogPage = lazy(() => import('./pages/DailyTradeLogPage'))
 const SectorsPage = lazy(() => import('./pages/SectorsPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const WikiHomePage = lazy(() => import('./pages/WikiHomePage'))
@@ -74,6 +74,29 @@ function AppRoutes() {
         <Route path="/settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/portfolio" element={<PortfolioPage />} />
+          <Route path="/portfolio/snapshot" element={<PortfolioSnapshotPage />} />
+          <Route path="/stock" element={<StockDetailPage />} />
+          <Route path="/analysis" element={<AnalysisPage />} />
+          <Route path="/analysis/:jobId" element={<AnalysisDetailPage />} />
+          <Route path="/sectors" element={<SectorsPage />} />
+          <Route path="/knowledge/raw" element={<RawSourcesPage />} />
+          <Route path="/knowledge/manual" element={<ManualMaterialsPage />} />
+          <Route path="/knowledge/raw/new" element={<ManualSourceNewPage />} />
+          <Route path="/knowledge/raw/:sourceId/edit" element={<RawSourceEditPage />} />
+          <Route path="/knowledge/raw/:sourceId" element={<RawSourceDetailPage />} />
+          <Route path="/wiki" element={<WikiHomePage />} />
+          <Route path="/wiki/ingest" element={<WikiIngestPage />} />
+          <Route path="/wiki/lint" element={<WikiLintPage />} />
+          <Route path="/wiki/claims" element={<WikiClaimsPage />} />
+          <Route path="/wiki/pages/:pageId" element={<WikiPageDetailPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Suspense>
     </Layout>
   )
 }

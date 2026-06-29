@@ -24,3 +24,23 @@ def test_job_failure():
     job.fail("网络错误")
     assert job.status == JobStatus.ERROR
     assert "网络" in job.error
+
+
+def test_worker_config_overrides_include_checkpoint_enabled():
+    from src.orchestrator.job_worker import build_analysis_config_overrides
+
+    overrides = build_analysis_config_overrides(
+        {
+            "output_language": "Chinese",
+            "trade_date": "2026-06-16",
+            "checkpoint_enabled": True,
+            "analysts": ["market"],
+            "unrelated": "ignored",
+        }
+    )
+
+    assert overrides == {
+        "output_language": "Chinese",
+        "trade_date": "2026-06-16",
+        "checkpoint_enabled": True,
+    }

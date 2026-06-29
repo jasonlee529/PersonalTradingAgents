@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from src.orchestrator.state import AnalysisJob, AnalysisStep, StepStatus
+from src.orchestrator.state import AnalysisJob, AnalysisStep, JobStatus, StepStatus
 
 logger = logging.getLogger(__name__)
 
@@ -263,7 +263,7 @@ class PhaseReporter:
             if step:
                 step.status = StepStatus.ERROR
                 step.detail = error
-        self.job.status = StepStatus.ERROR
+        self.job.status = JobStatus.ERROR
         await self._persist()
 
     async def on_complete(self) -> None:

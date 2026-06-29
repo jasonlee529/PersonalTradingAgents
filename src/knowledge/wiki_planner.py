@@ -1,6 +1,7 @@
 import hashlib
 import json
 import re
+from difflib import SequenceMatcher
 from datetime import datetime
 
 from src.config import Settings
@@ -400,6 +401,50 @@ class DeterministicWikiPlanner:
             warnings=[],
         )
 
+    async def plan_batch_ingest(
+        self,
+        *,
+        sources: list[dict],
+        related_pages: list[dict],
+        schema_text: str,
+    ) -> WikiUpdatePlan:
+        plans: list[WikiUpdatePlan] = []
+        for source in sources:
+            plans.append(await self.plan_source_ingest(
+                source=source,
+                related_pages=related_pages,
+                schema_text=schema_text,
+            ))
+
+        source_ids: list[str] = []
+        pages_by_id: dict[str, WikiPageUpsert] = {}
+        page_patches: list[WikiPagePatch] = []
+        claims: list[WikiClaim] = []
+        warnings: list[str] = []
+        log_entries: list[str] = []
+
+        for plan in plans:
+            source_ids.extend(plan.source_ids)
+            for page in plan.pages_to_create:
+                pages_by_id.setdefault(page.page_id, page)
+            page_patches.extend(plan.page_patches)
+            claims.extend(plan.claims)
+            warnings.extend(plan.warnings)
+            if plan.log_entry:
+                log_entries.append(plan.log_entry)
+
+        return WikiUpdatePlan(
+            source_ids=list(dict.fromkeys(source_ids)),
+            title=f"Batch ingest {len(source_ids)} sources",
+            summary=f"Deterministic batch plan for {len(source_ids)} raw sources",
+            pages_to_create=list(pages_by_id.values()),
+            page_patches=page_patches,
+            claims=claims,
+            contradictions=[],
+            log_entry="\n\n".join(log_entries),
+            warnings=warnings,
+        )
+
 
 # ---------------------------------------------------------------------------
 # LLM-driven planner
@@ -439,7 +484,18 @@ _WIKI_UPDATE_PLAN_SCHEMA_TEXT = """
       "source_ids": ["..."]
     }
   ],
-  "contradictions": [],
+  "contradictions": [
+    {
+      "claim_id": "...",
+      "subject_type": "...",
+      "subject_id": "...",
+      "claim_type": "contradiction",
+      "statement": "...",
+      "confidence": 0.6,
+      "source_ids": ["..."],
+      "contradicts": ["..."]
+    }
+  ],
   "log_entry": "...",
   "warnings": []
 }
@@ -532,6 +588,22 @@ class LLMWikiPlanner:
         }
         return await self._call_llm(prompt, valid_source_ids, source_kind_by_id)
 
+    async def plan_batch_ingest(
+        self,
+        *,
+        sources: list[dict],
+        related_pages: list[dict],
+        schema_text: str,
+        recent_log: str = "",
+    ) -> WikiUpdatePlan:
+        prompt = self._build_batch_prompt(sources, related_pages, schema_text, recent_log)
+        valid_source_ids = {s.get("source_id", "") for s in sources}
+        source_kind_by_id = {
+            s.get("source_id", ""): s.get("source_kind", "")
+            for s in sources
+        }
+        return await self._call_llm(prompt, valid_source_ids, source_kind_by_id)
+
     # ------------------------------------------------------------------
     # LLM invocation
     # ------------------------------------------------------------------
@@ -610,12 +682,15 @@ class LLMWikiPlanner:
                 f"Output preview: {raw_output[:500]}"
             )
 
+        self._sanitize_plan_data(data)
+
         # 3. Pydantic validation
         try:
             plan = WikiUpdatePlan.model_validate(data)
         except Exception as exc:
             raise ValueError(f"LLM output failed Pydantic validation: {exc}") from exc
 
+        self._normalize_source_ids(plan, valid_source_ids)
         self._normalize_plan_page_ids(plan)
         self._apply_default_claim_confidence(plan, source_kind_by_id)
 
@@ -625,6 +700,274 @@ class LLMWikiPlanner:
             raise ValueError("; ".join(errors))
 
         return plan
+
+    @staticmethod
+    def _normalize_source_ids(plan: WikiUpdatePlan, valid_source_ids: set[str]) -> None:
+        replacements: dict[str, str] = {}
+        for source_id in list(plan.source_ids):
+            normalized = LLMWikiPlanner._closest_valid_source_id(source_id, valid_source_ids)
+            if normalized and normalized != source_id:
+                replacements[source_id] = normalized
+
+        for claim in [*plan.claims, *plan.contradictions]:
+            for source_id in list(claim.source_ids):
+                normalized = LLMWikiPlanner._closest_valid_source_id(source_id, valid_source_ids)
+                if normalized and normalized != source_id:
+                    replacements[source_id] = normalized
+
+        for page in plan.pages_to_create:
+            metadata = page.metadata
+            source_id = metadata.get("source_id")
+            if isinstance(source_id, str):
+                normalized = LLMWikiPlanner._closest_valid_source_id(source_id, valid_source_ids)
+                if normalized and normalized != source_id:
+                    replacements[source_id] = normalized
+                    metadata["source_id"] = normalized
+            source_ids = metadata.get("source_ids")
+            if isinstance(source_ids, list):
+                normalized_source_ids = []
+                for source_id in source_ids:
+                    if not isinstance(source_id, str):
+                        normalized_source_ids.append(source_id)
+                        continue
+                    normalized = LLMWikiPlanner._closest_valid_source_id(source_id, valid_source_ids)
+                    if normalized and normalized != source_id:
+                        replacements[source_id] = normalized
+                    normalized_source_ids.append(replacements.get(source_id, source_id))
+                metadata["source_ids"] = normalized_source_ids
+
+        if not replacements:
+            return
+
+        plan.source_ids = list(dict.fromkeys(
+            replacements.get(source_id, source_id)
+            for source_id in plan.source_ids
+        ))
+        for claim in [*plan.claims, *plan.contradictions]:
+            claim.source_ids = list(dict.fromkeys(
+                replacements.get(source_id, source_id)
+                for source_id in claim.source_ids
+            ))
+        plan.warnings.append(
+            "Normalized mistyped source_id(s) from LLM output: "
+            + ", ".join(f"{old} -> {new}" for old, new in sorted(replacements.items()))
+        )
+
+    @staticmethod
+    def _closest_valid_source_id(source_id: str, valid_source_ids: set[str]) -> str:
+        if source_id in valid_source_ids:
+            return source_id
+        if not source_id or ":" not in source_id:
+            return ""
+        prefix = source_id.split(":", 1)[0]
+        candidates = [
+            valid
+            for valid in valid_source_ids
+            if valid.split(":", 1)[0] == prefix
+        ]
+        best = ""
+        best_score = 0.0
+        for candidate in candidates:
+            score = SequenceMatcher(None, source_id, candidate).ratio()
+            if score > best_score:
+                best = candidate
+                best_score = score
+        return best if best_score >= 0.92 else ""
+
+    @staticmethod
+    def _sanitize_plan_data(data: dict) -> None:
+        """Normalize common non-WikiClaim contradiction shapes before validation."""
+        if not isinstance(data, dict):
+            return
+
+        contradictions = data.get("contradictions")
+        if not isinstance(contradictions, list):
+            return
+
+        required_fields = {"subject_type", "subject_id", "claim_type", "statement"}
+        valid_contradictions = []
+        repaired = 0
+        dropped = 0
+        for contradiction in contradictions:
+            if (
+                isinstance(contradiction, dict)
+                and required_fields.issubset(contradiction)
+            ):
+                valid_contradictions.append(contradiction)
+                continue
+
+            normalized = LLMWikiPlanner._normalize_contradiction_item(
+                contradiction,
+                data,
+            )
+            if normalized is not None:
+                valid_contradictions.append(normalized)
+                repaired += 1
+                continue
+
+            if contradiction:
+                dropped += 1
+
+        if repaired or dropped:
+            data["contradictions"] = valid_contradictions
+            warnings = data.get("warnings")
+            if not isinstance(warnings, list):
+                warnings = []
+                data["warnings"] = warnings
+            if repaired:
+                warnings.append(
+                    f"Normalized {repaired} malformed contradiction item(s) from LLM output."
+                )
+            if dropped:
+                warnings.append(
+                    f"Dropped {dropped} unrecoverable contradiction item(s) from LLM output."
+                )
+
+    @staticmethod
+    def _normalize_contradiction_item(
+        contradiction: object,
+        plan_data: dict,
+    ) -> dict | None:
+        if not isinstance(contradiction, dict):
+            return None
+
+        claim_a = str(
+            contradiction.get("claim_a")
+            or contradiction.get("claim_id_a")
+            or contradiction.get("left_claim")
+            or ""
+        ).strip()
+        claim_b = str(
+            contradiction.get("claim_b")
+            or contradiction.get("claim_id_b")
+            or contradiction.get("right_claim")
+            or ""
+        ).strip()
+        contradicts = [
+            value
+            for value in (claim_a, claim_b)
+            if value
+        ]
+
+        statement = str(
+            contradiction.get("statement")
+            or contradiction.get("summary")
+            or contradiction.get("reason")
+            or contradiction.get("description")
+            or contradiction.get("detail")
+            or contradiction.get("message")
+            or ""
+        ).strip()
+        if not statement and contradicts:
+            statement = "Contradiction between " + " and ".join(contradicts)
+        if not statement and contradiction.get("contradiction_id"):
+            status = str(contradiction.get("status") or "").strip()
+            statement = str(contradiction.get("contradiction_id") or "").strip()
+            if status:
+                statement = f"{statement} ({status})"
+        if not statement:
+            return None
+
+        source_ids = LLMWikiPlanner._extract_valid_source_ids(contradiction.get("source_ids"))
+        if not source_ids:
+            source_ids = LLMWikiPlanner._extract_valid_source_ids(plan_data.get("source_ids"))
+        if not source_ids:
+            return None
+
+        subject_type = str(contradiction.get("subject_type") or "").strip()
+        subject_id = str(contradiction.get("subject_id") or "").strip()
+        if not subject_type or not subject_id:
+            subject_type, subject_id = LLMWikiPlanner._infer_subject_from_plan_data(plan_data)
+
+        claim_id = str(
+            contradiction.get("claim_id")
+            or contradiction.get("contradiction_id")
+            or ""
+        ).strip()
+        if not claim_id:
+            claim_id = f"contradiction:{_stable_hash(statement + '|'.join(contradicts), 12)}"
+
+        metadata = dict(contradiction.get("metadata") or {})
+        for key, value in contradiction.items():
+            if key not in {
+                "claim_id",
+                "contradiction_id",
+                "subject_type",
+                "subject_id",
+                "claim_type",
+                "statement",
+                "summary",
+                "reason",
+                "description",
+                "detail",
+                "message",
+                "confidence",
+                "source_ids",
+                "page_ids",
+                "contradicts",
+                "metadata",
+            }:
+                metadata[key] = value
+
+        return {
+            "claim_id": claim_id,
+            "subject_type": subject_type or "general",
+            "subject_id": subject_id or "batch",
+            "claim_type": str(contradiction.get("claim_type") or "contradiction"),
+            "statement": statement,
+            "polarity": str(contradiction.get("polarity") or ""),
+            "status": str(contradiction.get("status") or "active"),
+            "confidence": float(contradiction.get("confidence") or 0.5),
+            "source_ids": source_ids,
+            "page_ids": LLMWikiPlanner._extract_valid_source_ids(contradiction.get("page_ids")),
+            "contradicts": [
+                str(item).strip()
+                for item in (
+                    contradiction.get("contradicts")
+                    if isinstance(contradiction.get("contradicts"), list)
+                    else contradicts
+                )
+                if str(item).strip()
+            ],
+            "metadata": metadata,
+        }
+
+    @staticmethod
+    def _extract_valid_source_ids(value: object) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    @staticmethod
+    def _infer_subject_from_plan_data(plan_data: dict) -> tuple[str, str]:
+        claims = plan_data.get("claims")
+        if isinstance(claims, list):
+            for claim in claims:
+                if not isinstance(claim, dict):
+                    continue
+                subject_type = str(claim.get("subject_type") or "").strip()
+                subject_id = str(claim.get("subject_id") or "").strip()
+                if subject_type and subject_id:
+                    return subject_type, subject_id
+
+        pages = plan_data.get("pages_to_create")
+        if isinstance(pages, list):
+            for page in pages:
+                if not isinstance(page, dict):
+                    continue
+                metadata = page.get("metadata")
+                symbol = ""
+                if isinstance(metadata, dict):
+                    symbol = str(metadata.get("symbol") or "").strip()
+                if symbol:
+                    return "stock", symbol
+                page_id = str(page.get("page_id") or "")
+                if page_id.startswith("stock:"):
+                    parts = page_id.split(":")
+                    if len(parts) >= 2 and parts[1]:
+                        return "stock", parts[1]
+
+        return "general", "batch"
 
     def _apply_default_claim_confidence(
         self,
@@ -638,11 +981,14 @@ class LLMWikiPlanner:
                 claim.confidence = max(0.0, min(float(claim.confidence), 1.0))
 
     def _normalize_plan_page_ids(self, plan: WikiUpdatePlan) -> None:
-        """Normalize common LLM-generated stock page_id variants before validation."""
+        """Normalize common LLM-generated page_id variants before validation."""
         replacements: dict[str, str] = {}
 
         for page in plan.pages_to_create:
-            normalized = self._normalized_stock_page_id(page)
+            normalized = (
+                self._normalized_stock_page_id(page)
+                or self._normalized_portfolio_page_id(page)
+            )
             if normalized and normalized != page.page_id:
                 replacements[page.page_id] = normalized
                 page.page_id = normalized
@@ -681,6 +1027,14 @@ class LLMWikiPlanner:
         if page_type == "stock_timeline":
             return f"stock:{symbol}:timeline"
         return f"stock:{symbol}:analysis_runs"
+
+    @staticmethod
+    def _normalized_portfolio_page_id(page: WikiPageUpsert) -> str | None:
+        if page.page_type == "portfolio_overview" and not page.page_id.startswith("portfolio:"):
+            return "portfolio:overview"
+        if page.page_type == "trade_review" and not page.page_id.startswith("portfolio:"):
+            return "portfolio:trade_review"
+        return None
 
     @staticmethod
     def _infer_symbol_from_stock_page_id(page_id: str, page_type: str) -> str:
@@ -871,12 +1225,68 @@ Do NOT include any text outside the JSON. Ensure all source_ids in the output ex
 """
         return prompt
 
+    def _build_batch_prompt(
+        self,
+        sources: list[dict],
+        related_pages: list[dict],
+        schema_text: str,
+        recent_log: str,
+    ) -> str:
+        sources_text = "\n\n".join(
+            self._format_single_source(s) for s in sources
+        )
+        related_text = self._format_related_pages(related_pages)
+        log_text = recent_log if recent_log else "(No recent log entries provided)"
+
+        prompt = f"""You are a wiki maintainer assistant. Based on the provided batch of raw sources and related wiki pages, generate ONE WikiUpdatePlan in strict JSON format.
+
+## Wiki Maintainer Schema
+
+{schema_text}
+
+## Raw Source Batch
+
+Sources ({len(sources)}):
+
+{sources_text}
+
+## Related Wiki Pages
+
+{related_text}
+
+## Recent Log Summary
+
+{log_text}
+
+{_HARD_CONSTRAINTS}
+
+{_PAGE_ID_RULES}
+
+## Batch Rules
+
+1. Return one consolidated plan for all provided raw sources.
+2. Do not create duplicate pages with the same page_id.
+3. Prefer one patch per target section that summarizes the whole batch when multiple sources touch the same page.
+4. Include every input source_id in source_ids unless the source has no usable content; explain skipped sources in warnings.
+
+## Output Format
+
+Return ONLY valid JSON matching this WikiUpdatePlan schema:
+
+{_WIKI_UPDATE_PLAN_SCHEMA_TEXT}
+
+Do NOT include any text outside the JSON. Ensure all source_ids in the output exist in the input raw sources.
+"""
+        return prompt
+
     @staticmethod
     def _format_single_source(source: dict) -> str:
         lines = [
             f"- source_id: `{source.get('source_id', '')}`",
             f"  source_kind: `{source.get('source_kind', '')}`",
             f"  title: {source.get('title', '')}",
+            f"  symbol: `{source.get('symbol', '')}`",
+            f"  trade_date: `{source.get('trade_date', '')}`",
         ]
         md = source.get("markdown", "")
         if md:
