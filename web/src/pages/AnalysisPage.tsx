@@ -42,6 +42,7 @@ interface AnalysisFormValues {
 interface AnalysisJobListItem {
   job_id: string
   symbol: string
+  stock_name?: string
   status: string
   progress: string
   created_at: string
@@ -177,6 +178,12 @@ export default function AnalysisPage() {
       title: '股票',
       dataIndex: 'symbol',
       width: 110,
+    },
+    {
+      title: '股票名称',
+      dataIndex: 'stock_name',
+      width: 130,
+      render: (v: string) => v || '-',
     },
     {
       title: '状态',

@@ -100,6 +100,17 @@ def _make_discovery_status(job_id: str) -> DiscoverStatusResponse:
     )
 
 
+def _is_valid_direction_analysis(analysis_data: dict) -> bool:
+    if not analysis_data:
+        return True
+    market_overview = analysis_data.get("market_overview") or {}
+    stats = market_overview.get("statistics") or {}
+    if not stats:
+        return False
+    breadth = sum(int(stats.get(k) or 0) for k in ("up_count", "down_count", "flat_count"))
+    return breadth >= 1000
+
+
 @router.get("/today")
 async def get_today_directions(
     date: Optional[str] = None,
@@ -112,14 +123,20 @@ async def get_today_directions(
         date: Optional date string (YYYY-MM-DD). Defaults to latest.
         limit: Max number of reports to return.
     """
-    logger.info("API GET /sectors/today date=%s limit=%d", date or "latest", limit)
+    requested_date = date or normalize_trade_date(datetime.now().strftime("%Y-%m-%d"))
+    logger.info("API GET /sectors/today date=%s limit=%d", requested_date, limit)
     try:
         results = []
+        # Explicit date means exact lookup; default means latest available report.
+        trade_date_filter = requested_date if date else None
         entries = await services.raw_store.list_sources(
             source_kind="daily_direction",
-            trade_date=date or None,
+            trade_date=trade_date_filter,
             limit=limit,
         )
+        response_date = entries[0].get("trade_date", requested_date) if entries else requested_date
+        valid_results = []
+        legacy_results = []
         for entry in entries:
             try:
                 source = await services.raw_store.read_source(entry["source_id"])
@@ -129,7 +146,7 @@ async def get_today_directions(
             stable_id = int(hashlib.sha256(entry["source_id"].encode("utf-8")).hexdigest()[:8], 16)
             meta = entry.get("metadata") or {}
             analysis_data = meta.get("analysis_data") or {}
-            results.append({
+            report = {
                 "id": stable_id,
                 "source_id": entry["source_id"],
                 "date": entry.get("trade_date", ""),
@@ -143,10 +160,22 @@ async def get_today_directions(
                 "deep_analysis": analysis_data.get("deep_analysis", {}),
                 "execution_log": analysis_data.get("execution_log", []),
                 "candidate_count": len(analysis_data.get("candidate_directions", [])),
-            })
+            }
+            if not _is_valid_direction_analysis(analysis_data):
+                logger.warning(
+                    "Daily direction report %s has legacy or incomplete market statistics",
+                    entry["source_id"],
+                )
+                legacy_results.append(report)
+                continue
+            valid_results.append(report)
+
+        results = valid_results + legacy_results
 
         logger.info("API GET /sectors/today returned %d reports", len(results))
-        return {"date": date or "latest", "reports": results}
+        if results:
+            response_date = results[0].get("date") or response_date
+        return {"date": response_date, "reports": results}
     except Exception as e:
         logger.error("Failed to get today directions: %s", e)
         raise HTTPException(status_code=500, detail=str(e))

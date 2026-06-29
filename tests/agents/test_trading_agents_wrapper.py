@@ -1,5 +1,6 @@
 # tests/agents/test_trading_agents_wrapper.py
 import pytest
+import logging
 from unittest.mock import MagicMock, patch
 
 
@@ -148,6 +149,47 @@ class TestTradingAgentsWrapper:
         call_args = mock_ta.propagate.call_args
         trade_date = call_args[0][1]
         assert trade_date == date.today().strftime("%Y-%m-%d")
+
+    def test_analyze_logs_injected_analysis_memory(self, test_settings, caplog):
+        """analyze() should log the exact historical context injected into the graph."""
+        import asyncio
+        from src.agents.analysis_memory import save_analysis_memory
+        from src.knowledge.raw_store import RawStore
+        from src.agents.trading_agents_wrapper import TradingAgentsWrapper
+
+        async def run():
+            store = RawStore(test_settings)
+            await save_analysis_memory(
+                store,
+                symbol="603738",
+                trade_date="2026-06-06",
+                run_id="analysis:603738:2026-06-06:101010",
+                run_time="101010",
+                final_trade_decision="Rating: **Hold**\nReason: wait for confirmation.",
+            )
+
+            mock_ta = MagicMock()
+            mock_ta.config = {}
+            mock_ta.propagate = MagicMock(return_value=(
+                {"final_trade_decision": "hold"},
+                "hold",
+            ))
+
+            wrapper = TradingAgentsWrapper.__new__(TradingAgentsWrapper)
+            wrapper.settings = test_settings
+            wrapper._ta = mock_ta
+            wrapper._raw_store = store
+            wrapper._default_analysts = []
+            wrapper._lock = asyncio.Lock()
+
+            await wrapper.analyze("603738", trade_date="2026-06-07")
+
+        caplog.set_level(logging.INFO, logger="src.agents.trading_agents_wrapper")
+        asyncio.run(run())
+
+        assert "Analysis memory context injected for 603738" in caplog.text
+        assert "Past analyses of 603738" in caplog.text
+        assert "wait for confirmation" in caplog.text
 
     def test_wrapper_accepts_cache_param(self, test_settings):
         """TradingAgentsWrapper should accept an optional cache parameter."""

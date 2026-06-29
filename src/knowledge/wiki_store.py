@@ -352,6 +352,8 @@ class WikiStore:
         await self.init_db()
         meta = dict(metadata or {})
         now = _now_iso()
+        slug = await self._dedupe_slug(slug.strip(), page_id)
+        meta["slug"] = slug
 
         symbol = str(meta.get("symbol") or "").strip()
         topic = str(meta.get("topic") or "").strip()
@@ -451,6 +453,16 @@ class WikiStore:
             await self.link_page_source(page_id, sid, source_role="evidence")
 
         return {**self._normalise_page_record(row), "content_path": str(rel_path)}
+
+    async def _dedupe_slug(self, slug: str, page_id: str) -> str:
+        candidate = slug
+        suffix = _sha256_text(page_id)[:8]
+        for index in range(20):
+            owner = await self.get_page_by_slug(candidate)
+            if not owner or owner.get("page_id") == page_id:
+                return candidate
+            candidate = f"{slug}-{suffix}" if index == 0 else f"{slug}-{suffix}-{index + 1}"
+        raise ValueError(f"Unable to generate unique wiki slug for page_id: {page_id}")
 
     async def read_page(self, page_id: str) -> dict:
         row = await self._get_page_record(page_id)

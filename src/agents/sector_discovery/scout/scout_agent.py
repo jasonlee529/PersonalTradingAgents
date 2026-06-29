@@ -196,6 +196,7 @@ class ScoutAgent:
                     "heat_level": heat_level,
                     "order_flow_profile": order_flow_profile,
                     "limit_up_count": stock_count,
+                    "data_date": getattr(sig, "data_date", ""),
                 },
             )
             candidates.append(CandidateDirection(
@@ -207,6 +208,7 @@ class ScoutAgent:
                     "heat_level": heat_level,
                     "order_flow_profile": order_flow_profile,
                     "limit_up_count": stock_count,
+                    "data_date": getattr(sig, "data_date", ""),
                 },
             ))
         return candidates

@@ -229,7 +229,6 @@ class PositionUpdate(BaseModel):
     quantity: int
     avg_cost: float
     current_price: Optional[float] = None
-    unrealized_pnl: Optional[float] = None
     override_reason: str = ""
 
 
@@ -264,6 +263,7 @@ class AnalysisRequest(BaseModel):
 class AnalysisJobListItem(BaseModel):
     job_id: str
     symbol: str
+    stock_name: str = ""
     status: str
     progress: str
     created_at: Optional[str] = None

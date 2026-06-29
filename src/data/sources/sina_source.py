@@ -225,6 +225,144 @@ class SinaSource(DataSource):
     async def get_fundamentals(self, symbol: str) -> Optional[dict]:
         return None
 
+    def _fetch_index_quotes(self, symbols: list[str]) -> list[dict]:
+        url = "https://hq.sinajs.cn/list=" + ",".join(symbols)
+        headers = {"User-Agent": _UA, "Referer": "https://finance.sina.com.cn/"}
+        r = requests.get(url, headers=headers, timeout=10)
+        r.raise_for_status()
+        r.encoding = "gbk"
+        records = []
+        for line in r.text.splitlines():
+            if not line.strip() or '"' not in line:
+                continue
+            symbol = line.split("=")[0].split("_")[-1]
+            values = line.split('"')[1].split(",")
+            if len(values) < 6 or not values[1]:
+                continue
+            current = float(values[1] or 0)
+            prev_close = float(values[2] or 0)
+            open_price = float(values[5] or 0)
+            high = float(values[3] or 0)
+            low = float(values[4] or 0)
+            volume = int(float(values[8] or 0)) if len(values) > 8 else 0
+            amount = float(values[9] or 0) if len(values) > 9 else 0.0
+            change = current - prev_close if current and prev_close else 0.0
+            change_pct = change / prev_close * 100 if prev_close else 0.0
+            records.append({
+                "symbol": symbol,
+                "current": current,
+                "change": round(change, 2),
+                "change_pct": round(change_pct, 2),
+                "open": open_price,
+                "high": high,
+                "low": low,
+                "volume": volume,
+                "amount": amount,
+            })
+        return records
+
+    async def get_market_indices(self) -> Optional[list[dict]]:
+        indices_map = {
+            "sh000001": ("000001", "上证指数"),
+            "sz399001": ("399001", "深证成指"),
+            "sz399006": ("399006", "创业板指"),
+            "sh000688": ("000688", "科创50"),
+            "sh000016": ("000016", "上证50"),
+            "sh000300": ("000300", "沪深300"),
+        }
+        try:
+            rows = await asyncio.to_thread(self._fetch_index_quotes, list(indices_map.keys()))
+            by_symbol = {row.pop("symbol"): row for row in rows}
+            results = []
+            for symbol, (code, name) in indices_map.items():
+                row = by_symbol.get(symbol)
+                if not row:
+                    continue
+                results.append({
+                    "code": code,
+                    "name": name,
+                    **row,
+                    "amplitude": 0.0,
+                    "source": self.name,
+                })
+            return results or None
+        except Exception as e:
+            logger.warning("Sina market indices failed: %s", e)
+            return None
+
+    def _fetch_market_statistics(self) -> Optional[dict]:
+        url = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
+        base_params = {
+            "num": "100",
+            "sort": "symbol",
+            "asc": "1",
+            "node": "hs_a",
+            "symbol": "",
+            "_s_r_a": "page",
+        }
+        rows: list[dict] = []
+        for page in range(1, 80):
+            params = {**base_params, "page": str(page)}
+            r = requests.get(url, params=params, headers={"User-Agent": _UA}, timeout=20)
+            r.raise_for_status()
+            page_rows = json.loads(r.text)
+            if not isinstance(page_rows, list) or not page_rows:
+                break
+            rows.extend(page_rows)
+            if len(page_rows) < int(base_params["num"]):
+                break
+
+        if not rows:
+            return None
+
+        up_count = down_count = flat_count = limit_up_count = limit_down_count = 0
+        total_amount = 0.0
+        for item in rows:
+            try:
+                change_pct = float(item.get("changepercent") or 0)
+                amount = float(item.get("amount") or 0)
+            except (TypeError, ValueError):
+                continue
+            total_amount += amount
+            if change_pct > 0:
+                up_count += 1
+            elif change_pct < 0:
+                down_count += 1
+            else:
+                flat_count += 1
+
+            code = str(item.get("symbol") or "")[-6:]
+            name = str(item.get("name") or "")
+            limit_ratio = 0.10
+            if code.startswith(("688", "30")):
+                limit_ratio = 0.20
+            elif code.startswith(("8", "9", "43")):
+                limit_ratio = 0.30
+            elif "ST" in name or "*ST" in name:
+                limit_ratio = 0.05
+            if change_pct >= limit_ratio * 100 - 0.5:
+                limit_up_count += 1
+            elif change_pct <= -limit_ratio * 100 + 0.5:
+                limit_down_count += 1
+
+        return {
+            "up_count": up_count,
+            "down_count": down_count,
+            "flat_count": flat_count,
+            "limit_up_count": limit_up_count,
+            "limit_down_count": limit_down_count,
+            "total_amount": round(total_amount / 1e8, 2),
+            "stock_count": up_count + down_count + flat_count,
+            "source": self.name,
+        }
+
+    async def get_market_statistics(self) -> Optional[dict]:
+        try:
+            return await asyncio.to_thread(self._fetch_market_statistics)
+        except Exception as e:
+            logger.warning("Sina market statistics failed: %s", e)
+            return None
+
     async def health_check(self) -> bool:
         try:
             await asyncio.wait_for(

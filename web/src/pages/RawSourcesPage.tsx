@@ -107,9 +107,9 @@ export default function RawSourcesPage({
     },
     {
       title: '操作',
-      width: 120,
+      width: 80,
       render: (_: unknown, row: RawSource) => (
-        <div style={{ display: 'flex', gap: 4 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'center' }}>
           <Button type="text" size="small" icon={<IconEye />} onClick={() => openViewModal(row)}>
             查看
           </Button>

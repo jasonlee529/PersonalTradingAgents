@@ -7,6 +7,7 @@ export const sourceKindLabels: Record<string, string> = {
   manual_source: '手动材料',
   daily_trade_log: '每日操作',
   analysis_memory: '分析记忆',
+  portfolio_snapshot: '持仓快照',
 }
 
 export const originLabels: Record<string, string> = {
@@ -178,6 +179,7 @@ const tagPrefixLabels: Record<string, string> = {
   date: '日期',
   trade_log: '交易记录',
   memory: '记忆',
+  portfolio_snapshot: '持仓快照',
 }
 
 const memoryKindLabels: Record<string, string> = {

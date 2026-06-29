@@ -205,7 +205,7 @@ def test_wiki_ingest_same_source_reuses_running_run(wiki_client, test_settings):
     assert "already queued" in second["warnings"][0].lower()
 
 
-def test_wiki_ingest_rejects_when_more_than_five_running(wiki_client, test_settings):
+def test_wiki_ingest_rejects_when_more_than_ten_running(wiki_client, test_settings):
     raw_store = RawStore(test_settings)
     wiki_store = WikiStore(test_settings)
     import asyncio
@@ -220,17 +220,17 @@ def test_wiki_ingest_rejects_when_more_than_five_running(wiki_client, test_setti
             markdown=f"# Source {i}\n\nBody",
             metadata={"trade_date": f"2026-06-{i + 1:02d}"},
         ))
-        for i in range(6)
+        for i in range(11)
     ]
 
-    for source in sources[:5]:
+    for source in sources[:10]:
         resp = wiki_client.post(f"/api/wiki/ingest/source/{source['source_id']}", json={})
         assert resp.status_code == 200
         assert resp.json()["status"] == "queued"
 
-    rejected = wiki_client.post(f"/api/wiki/ingest/source/{sources[5]['source_id']}", json={})
+    rejected = wiki_client.post(f"/api/wiki/ingest/source/{sources[10]['source_id']}", json={})
     assert rejected.status_code == 409
-    assert "5" in rejected.json()["detail"]
+    assert "10" in rejected.json()["detail"]
 
 
 def test_wiki_pages_search_by_title(wiki_client, test_settings):

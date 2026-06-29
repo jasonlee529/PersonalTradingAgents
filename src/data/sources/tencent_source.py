@@ -28,6 +28,9 @@ class TencentSource(DataSource):
 
     def _fetch_quote(self, codes: list[str]) -> dict[str, dict]:
         prefixed = [f"{self._get_prefix(c)}{c}" for c in codes]
+        return self._fetch_prefixed_quote(prefixed)
+
+    def _fetch_prefixed_quote(self, prefixed: list[str]) -> dict[str, dict]:
         url = "https://qt.gtimg.cn/q=" + ",".join(prefixed)
         req = urllib.request.Request(url)
         req.add_header("User-Agent", _UA)
@@ -92,6 +95,46 @@ class TencentSource(DataSource):
             }
         except Exception as e:
             logger.warning("Tencent quote failed for %s: %s", code, e)
+            return None
+
+    async def get_market_indices(self) -> Optional[list[dict]]:
+        indices_map = {
+            "sh000001": "上证指数",
+            "sz399001": "深证成指",
+            "sz399006": "创业板指",
+            "sh000688": "科创50",
+            "sh000016": "上证50",
+            "sh000300": "沪深300",
+        }
+        try:
+            data = await asyncio.to_thread(self._fetch_prefixed_quote, list(indices_map.keys()))
+            results = []
+            for prefixed, name in indices_map.items():
+                code = prefixed[2:]
+                q = data.get(code)
+                if not q:
+                    continue
+                current = float(q.get("price") or 0.0)
+                prev_close = float(q.get("last_close") or 0.0)
+                change = current - prev_close if current and prev_close else 0.0
+                change_pct = float(q.get("change_pct") or 0.0)
+                results.append({
+                    "code": code,
+                    "name": name,
+                    "current": current,
+                    "change": round(change, 2),
+                    "change_pct": round(change_pct, 2),
+                    "open": float(q.get("open") or 0.0),
+                    "high": float(q.get("high") or 0.0),
+                    "low": float(q.get("low") or 0.0),
+                    "volume": int(q.get("volume") or 0),
+                    "amount": float(q.get("turnover") or 0.0),
+                    "amplitude": 0.0,
+                    "source": self.name,
+                })
+            return results or None
+        except Exception as e:
+            logger.warning("Tencent market indices failed: %s", e)
             return None
 
     async def get_fundamentals(self, symbol: str) -> Optional[dict]:
