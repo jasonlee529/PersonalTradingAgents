@@ -251,6 +251,56 @@ export const strategyApi = {
     api.get<StrategyScanResponse>(`/strategies/${encodeURIComponent(strategyId)}/scan`, { params }),
 }
 
+// Tail-End Monitor (尾盘监控)
+export interface TailEndScanParams {
+  turnover_min?: number
+  turnover_max?: number
+  mcap_min?: number
+  mcap_max?: number
+  change_min?: number
+  change_max?: number
+  vol_ratio_min?: number
+  vol_ratio_max?: number
+  q?: string
+}
+
+export interface KlineRecord {
+  date: string
+  open: number
+  close: number
+  high: number
+  low: number
+  volume: number
+}
+
+export interface TailEndItem {
+  symbol: string
+  name: string
+  market: string
+  price: number
+  change_pct: number
+  turnover_rate: number | null
+  total_market_cap: number | null
+  volume_ratio: number | null
+  change_since_1430: number | null
+  above_vwap: boolean
+  recent_limit_up: boolean
+  limit_up_date: string
+  kline_3d: KlineRecord[]
+}
+
+export interface TailEndScanResponse {
+  total: number
+  items: TailEndItem[]
+  scan_time: string
+  error?: string
+}
+
+export const tailEndApi = {
+  scan: (params?: TailEndScanParams) =>
+    api.get<TailEndScanResponse>('/tail-end/scan', { params }),
+}
+
 // Backtest (回测)
 export interface BacktestRequest {
   strategy_id: string

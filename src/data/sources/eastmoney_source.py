@@ -921,6 +921,7 @@ class EastmoneySource(DataSource):
                         turnover_rate_raw = item.get("f8")
                         pe_ratio_raw = item.get("f9")
                         amplitude_raw = item.get("f7")
+                        volume_ratio_raw = item.get("f10")
                         total_market_cap_raw = item.get("f20")
                         float_market_cap_raw = item.get("f21")
                         limit_up_price_raw = item.get("f22")
@@ -937,6 +938,7 @@ class EastmoneySource(DataSource):
                         open_price = float(open_raw) if open_raw not in (None, "-", "") else 0.0
                         prev_close = float(prev_close_raw) if prev_close_raw not in (None, "-", "") else 0.0
                         turnover_rate = float(turnover_rate_raw) if turnover_rate_raw not in (None, "-", "") else None
+                        volume_ratio = float(volume_ratio_raw) if volume_ratio_raw not in (None, "-", "") else None
                         pe_ratio = float(pe_ratio_raw) if pe_ratio_raw not in (None, "-", "") else None
                         amplitude = float(amplitude_raw) if amplitude_raw not in (None, "-", "") else None
                         total_market_cap = float(total_market_cap_raw) if total_market_cap_raw not in (None, "-", "") else None
@@ -965,6 +967,7 @@ class EastmoneySource(DataSource):
                             "open": open_price,
                             "prev_close": prev_close,
                             "turnover_rate": turnover_rate,
+                            "volume_ratio": volume_ratio,
                             "pe_ratio": pe_ratio,
                             "amplitude": amplitude,
                             "total_market_cap": total_market_cap,

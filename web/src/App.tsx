@@ -11,6 +11,7 @@ const LimitUpAnalysisPage = lazy(() => import('./pages/LimitUpAnalysisPage'))
 const StockListPage = lazy(() => import('./pages/StockListPage'))
 const ChanlunBuySignalsPage = lazy(() => import('./pages/ChanlunBuySignalsPage'))
 const StrategiesPage = lazy(() => import('./pages/StrategiesPage'))
+const TailEndMonitorPage = lazy(() => import('./pages/TailEndMonitorPage'))
 const BacktestPage = lazy(() => import('./pages/BacktestPage'))
 const AnalysisPage = lazy(() => import('./pages/AnalysisPage'))
 const AnalysisDetailPage = lazy(() => import('./pages/AnalysisDetailPage'))
@@ -56,6 +57,7 @@ function AppRoutes() {
         <Route path="/stocks" element={<StockListPage />} />
 <Route path="/chanlun" element={<ChanlunBuySignalsPage />} />
         <Route path="/strategies" element={<StrategiesPage />} />
+        <Route path="/tail-end-monitor" element={<TailEndMonitorPage />} />
         <Route path="/backtest" element={<BacktestPage />} />
         <Route path="/analysis" element={<AnalysisPage />} />
         <Route path="/analysis/:jobId" element={<AnalysisDetailPage />} />

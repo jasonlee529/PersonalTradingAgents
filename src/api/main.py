@@ -17,6 +17,7 @@ from src.api.routers import (
     settings as settings_router,
     stocks,
     strategies,
+    tail_end,
     wiki,
 )
 from src.utils.logger import logging_context, setup_logging
@@ -97,6 +98,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(settings_router.router, prefix="/api")
     app.include_router(sectors.router, prefix="/api")
     app.include_router(strategies.router, prefix="/api")
+    app.include_router(tail_end.router, prefix="/api")
 
     @app.get("/api/health")
     async def health():

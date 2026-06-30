@@ -17,7 +17,7 @@ mkdir -p "$LOG_DIR"
 STARTUP_LOG="$LOG_DIR/startup.log"
 BACKEND_PID_FILE="$LOG_DIR/backend.pid"
 FRONTEND_PID_FILE="$LOG_DIR/frontend.pid"
-BACKGROUND=0
+BACKGROUND=1
 STOP_ONLY=0
 
 for arg in "$@"; do
@@ -25,16 +25,20 @@ for arg in "$@"; do
     --background|-d|--daemon)
       BACKGROUND=1
       ;;
+    --foreground|-f)
+      BACKGROUND=0
+      ;;
     --stop|stop)
       STOP_ONLY=1
       ;;
     --help|-h)
-      printf 'Usage: %s [--background|-d|--daemon] [--stop|stop]\n' "$0"
+      printf 'Usage: %s [--foreground|-f] [--stop|stop]\n' "$0"
+      printf '  默认后台运行，加 -f 前台运行\n'
       exit 0
       ;;
     *)
       printf '未知参数: %s\n' "$arg" >&2
-      printf 'Usage: %s [--background|-d|--daemon] [--stop|stop]\n' "$0" >&2
+      printf 'Usage: %s [--foreground|-f] [--stop|stop]\n' "$0" >&2
       exit 2
       ;;
   esac

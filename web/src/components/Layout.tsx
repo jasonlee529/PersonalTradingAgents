@@ -49,6 +49,7 @@ const menuItems: MenuItem[] = [
     label: '量化策略',
     children: [
       { key: '/strategies', icon: IconThunderbolt, label: '策略扫描' },
+      { key: '/tail-end-monitor', icon: IconArrowRise, label: '尾盘监控' },
       { key: '/backtest', icon: IconStorage, label: '策略回测' },
     ],
   },
