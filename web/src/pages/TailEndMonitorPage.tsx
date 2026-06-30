@@ -6,6 +6,11 @@ import { useQuery } from '@tanstack/react-query'
 import { tailEndApi, type TailEndItem, type TailEndScanParams } from '../api/client'
 import KlineChart from '../components/KlineChart'
 
+function today(): string {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 function displayNumber(value: number | null | undefined, digits = 2): string {
   if (value === null || value === undefined || Number.isNaN(Number(value))) return '-'
   return Number(value).toFixed(digits)
@@ -19,6 +24,9 @@ function displayMcap(value: number | null | undefined): string {
 export default function TailEndMonitorPage() {
   const navigate = useNavigate()
 
+  // 日期参数
+  const [tradeDate, setTradeDate] = useState(today())
+
   // 筛选参数
   const [turnoverMin, setTurnoverMin] = useState<number>(6)
   const [turnoverMax, setTurnoverMax] = useState<number>(15)
@@ -31,6 +39,7 @@ export default function TailEndMonitorPage() {
   const [keyword, setKeyword] = useState('')
 
   const scanParams: TailEndScanParams = {
+    trade_date: tradeDate,
     turnover_min: turnoverMin,
     turnover_max: turnoverMax,
     mcap_min: mcapMin,
@@ -197,6 +206,16 @@ export default function TailEndMonitorPage() {
       {/* 筛选参数 */}
       <Card className="card-glow-hover" style={{ marginBottom: 20 }}>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 13, color: 'var(--text-muted)', whiteSpace: 'nowrap' }}>交易日</span>
+            <Input
+              value={tradeDate}
+              onChange={setTradeDate}
+              placeholder="YYYY-MM-DD"
+              style={{ width: 130 }}
+              size="small"
+            />
+          </div>
           <ParamRange
             label="换手率(%)"
             min={turnoverMin}

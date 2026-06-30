@@ -131,13 +131,18 @@ class TailEndMonitor:
         vol_ratio_min: float = 2.0,
         vol_ratio_max: float = 5.0,
         q: str = "",
+        trade_date: str = "",
     ) -> tuple[list[dict], str]:
         """执行尾盘扫描。
+
+        Args:
+            trade_date: 交易日 (YYYY-MM-DD)，默认今日
 
         Returns:
             (结果列表, 错误信息)
         """
-        trade_date = datetime.now().strftime("%Y-%m-%d")
+        if not trade_date:
+            trade_date = datetime.now().strftime("%Y-%m-%d")
 
         # Step 1: 获取全市场数据
         rows, err = await self.collector.get_market_list(trade_date=trade_date)
@@ -230,7 +235,7 @@ class TailEndMonitor:
             async with semaphore_intra:
                 try:
                     symbol = stock.get("symbol", "")
-                    minute_klines = await self._fetch_minute_kline(symbol)
+                    minute_klines = await self._fetch_minute_kline(symbol, trade_date)
                     if not minute_klines:
                         return None
 
@@ -288,21 +293,23 @@ class TailEndMonitor:
         logger.info("尾盘扫描完成: 命中 %d 只", len(output))
         return output, ""
 
-    async def _fetch_minute_kline(self, symbol: str) -> Optional[list[dict]]:
-        """获取当日1分钟K线数据（eastmoney push2his API）。"""
+    async def _fetch_minute_kline(self, symbol: str, trade_date: str = "") -> Optional[list[dict]]:
+        """获取指定日期1分钟K线数据（eastmoney push2his API）。"""
         try:
             code = str(symbol).zfill(6)
             market_code = 1 if code.startswith("6") else 0
             secid = f"{market_code}.{code}"
-            today = datetime.now().strftime("%Y%m%d")
+            if not trade_date:
+                trade_date = datetime.now().strftime("%Y-%m-%d")
+            date_str = trade_date.replace("-", "")
 
             url = "https://push2his.eastmoney.com/api/qt/stock/kline/get"
             params = {
                 "secid": secid,
                 "klt": "1",  # 1分钟
                 "fqt": "0",
-                "beg": today,
-                "end": today,
+                "beg": date_str,
+                "end": date_str,
                 "fields1": "f1,f2,f3,f4,f5,f6,f7,f8,f9,f10,f11,f12,f13",
                 "fields2": "f51,f52,f53,f54,f55,f56,f57,f58,f59,f60,f61",
             }

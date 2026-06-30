@@ -253,6 +253,7 @@ export const strategyApi = {
 
 // Tail-End Monitor (尾盘监控)
 export interface TailEndScanParams {
+  trade_date?: string
   turnover_min?: number
   turnover_max?: number
   mcap_min?: number

@@ -42,6 +42,7 @@ class TailEndScanResponse(BaseModel):
 
 @router.get("/scan", response_model=TailEndScanResponse)
 async def scan_tail_end(
+    trade_date: str = Query(default_factory=lambda: datetime.now().strftime("%Y-%m-%d"), description="交易日 (YYYY-MM-DD)"),
     turnover_min: float = Query(6.0, ge=0, le=100, description="换手率下限(%)"),
     turnover_max: float = Query(15.0, ge=0, le=100, description="换手率上限(%)"),
     mcap_min: float = Query(50.0, ge=0, description="市值下限(亿)"),
@@ -65,6 +66,7 @@ async def scan_tail_end(
         vol_ratio_min=vol_ratio_min,
         vol_ratio_max=vol_ratio_max,
         q=q,
+        trade_date=trade_date,
     )
 
     return TailEndScanResponse(
